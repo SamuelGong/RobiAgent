@@ -3,3 +3,5 @@ munch
 python-dotenv
 inputimeout
 redis
+opencv-python
+mediapipe

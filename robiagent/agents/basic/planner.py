@@ -21,31 +21,32 @@ class BasicPlanner():
                     "name": "track_face",
                     "description": "Tracking face using left arm",
                     "dependencies": [],
-                    "tool": "arm",
+                    "skill": "single_arm",
                     "arguments": {
-                        'body': 'left_arm',
+                        'body': 'left',
                         'action': "Tracking face"
                     }
                 },
-                {
-                    "name": "vocal_intro",
-                    "description": "Playing introduction using microphone",
-                    "dependencies": ["track_face"],
-                    "tool": "microphone",
-                    "arguments": {
-                        'action': "Playing introduction"
-                    }
-                },
-                {
-                    "name": "usage_show",
-                    "description": "Demonstrating a new feature using right arm",
-                    "dependencies": ["track_face"],
-                    "tool": "arm",
-                    "arguments": {
-                        'body': 'right_arm',
-                        'action': "Demonstrating a new feature"
-                    }
-                }
+                # {
+                #     "name": "vocal_intro",
+                #     "description": "Playing introduction using microphone",
+                #     "dependencies": ["track_face"],
+                #     "skill": "pc",
+                #     "arguments": {
+                #         'hardware': "microphone",
+                #         'action': "Playing introduction"
+                #     }
+                # },
+                # {
+                #     "name": "usage_show",
+                #     "description": "Demonstrating a new feature using right arm",
+                #     "dependencies": ["track_face"],
+                #     "skill": "single_arm",
+                #     "arguments": {
+                #         'body': 'right',
+                #         'action': "Demonstrating a new feature"
+                #     }
+                # }
             ]
         else:
             raise NotImplementedError

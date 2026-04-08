@@ -6,4 +6,4 @@ registered_agents = {
 
 
 def get_agent(config, environment):
-    return registered_agents[config.type](config, environment)
+    return registered_agents[config.agent.type](config, environment)

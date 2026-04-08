@@ -12,7 +12,7 @@ def main():
     task = " ".join(sys.argv[1:])  # Combine all arguments into a single string
     config = setup()
     environment = get_environment(config)
-    agent = get_agent(config.agent, environment)
+    agent = get_agent(config, environment)
     agent.serve(task)
 
 

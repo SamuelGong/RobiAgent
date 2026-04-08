@@ -28,5 +28,30 @@ bash install_redis_server.sh  # should work at various operating systems
 nohup redis-server &
 ```
 
-## 2. Demonstration Examples
+## 1.3 Physical Environment Preparation
+
+Find out the USB port for each arm via
+
+```bash
+lerobot-find-port
+```
+
+Remember the port number. Then, calibrate each arm using commands like:
+
+```bash
+lerobot-calibrate --robot.type=so101_follower --robot.port=<Your confirmed port> --robot.id=<Your given ID>
+```
+
+Finally, change the `config.yml` to suit your need, important fields include:
+- `physical.arm.left.id`, `physical.arm.left.port`, `physical.arm.right.id`, `physical.arm.right.port`.
+
+# 2. Demonstrating Examples
+
+Try this toy example first!
+
+```bash
+ra demo
+```
+
+
 

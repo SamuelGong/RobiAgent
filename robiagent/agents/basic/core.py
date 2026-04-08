@@ -1,16 +1,14 @@
 import os
 import time
 import json
-import copy
 import pickle
 import dotenv
 import logging
 import threading
 import traceback
-import subprocess
 from multiprocessing import Pool
 import multiprocessing as mp
-
+from robiagent.agents.basic.skillset import BasicSkillset
 from robiagent.utils.misc import set_log
 from robiagent.agents.base import BaseAgent
 from robiagent.agents.basic.planner import BasicPlanner
@@ -25,36 +23,31 @@ class BasicAgent(BaseAgent):
     def __init__(self, config, environment):
         self.environment = environment
         self.planner = BasicPlanner(
-            config.planner,
+            config.agent.planner,
             environment
         )
-        self.config = config
+        self.config = config.agent
 
         self.all_tasks = {}
         self.completed_task_names = []
         self.running_task_names = []
         self.pending_task_names = []
 
+        self.skillset = BasicSkillset(config)
+
     def preprocessing_display(self, task):
         print_tag = "[Execution]"
-        print(f"\n{print_tag} I now run task {task['name']} with tool {task['tool']}.\n"
+        print(f"\n{print_tag} I now run task {task['name']} with skill {task['skill']}.\n"
               f"\tDetail: {task['description'][:500]}...")
-
-    def call_tool(self, tool_name, tool_args):
-        result = {
-            "err_code": 0,
-            "detail": ""
-        }
-        return result
 
     def process_a_task(self, overall_task, task):  # this run in a new process
         task_name = task['name']
-        task_tool = task['tool']
+        task_skill = task['skill']
         dotenv.load_dotenv(dotenv_path='.env', override=True)
         log_path = self.environment.get_log_path()
         set_log(log_path=log_path)
 
-        logging.info(f'Starting to process task {task_name} with tool {task_tool}')
+        logging.info(f'Starting to process task {task_name} with skill {task_skill}')
         begin_time = time.perf_counter()
 
         retry_count = 0
@@ -63,12 +56,12 @@ class BasicAgent(BaseAgent):
             try:
                 arguments = task['arguments']
                 self.preprocessing_display(task)
-                result = self.call_tool(
-                    tool_name=task_tool,
-                    tool_args=arguments
+                result = self.skillset.use_skill(
+                    skill_name=task_skill,
+                    skill_args=arguments
                 )
 
-                logging.info(f'Task {task_name} with tool {task_tool} '
+                logging.info(f'Task {task_name} with skill {task_skill} '
                              f'completed with result:\n{result}')
                 self.environment.set_task_result(
                     task=task,
@@ -77,11 +70,11 @@ class BasicAgent(BaseAgent):
 
                 task_succeeded = result["err_code"] == 0
                 detail = result["detail"]
-                logging.info(f'Task {task_name} with tool {task_tool} '
+                logging.info(f'Task {task_name} with skill {task_skill} '
                              f'{"succeeded" if task_succeeded else "failed"}:\n{detail}')
             except Exception as e:
                 result = f"Exception encountered: {e}\n{traceback.format_exc()}"
-                logging.info(f'Task {task_name} with tool {task_tool} '
+                logging.info(f'Task {task_name} with skill {task_skill} '
                              f'failed as {result}')
 
                 task_succeeded = False
@@ -102,7 +95,7 @@ class BasicAgent(BaseAgent):
 
         end_time = time.perf_counter()
         duration = end_time - begin_time
-        logging.info(f'Processing for task {task_name} with tool {task_tool} '
+        logging.info(f'Processing for task {task_name} with skill {task_skill} '
                      f'finished in {round(duration, 3)}s')
 
     def relay_input_for_workers(self):  # in a separate thread of the main process
@@ -192,13 +185,13 @@ class BasicAgent(BaseAgent):
         self.running_task_names.append(task_name)
         async_results[task_name] = result
 
-    def serve(self, task):
+    def serve(self, overall_task):
         start_time = time.perf_counter()
-        logging.info(f"Starting serving the task: {task}")
+        logging.info(f"Starting serving the task: {overall_task}")
 
         num_tasks_launched = 0
         try:
-            all_tasks = self.planner.plan(task)
+            all_tasks = self.planner.plan(overall_task)
             self.set_tasks(all_tasks)
             async_results = {}
 
@@ -234,7 +227,7 @@ class BasicAgent(BaseAgent):
                             logging.info(f"Exceeded max number of tasks. Aborting...")
                             abort = True
                             break
-                        result = pool.apply_async(self.process_a_task, (task, ready_task))
+                        result = pool.apply_async(self.process_a_task, (overall_task, ready_task))
                         self.mark_running_task(ready_task["name"], result, async_results)
                     if abort:
                         break
@@ -250,14 +243,6 @@ class BasicAgent(BaseAgent):
         finally:
             # to notify other threads to stop
             self.environment.publish_a_message(channel=END, message="done")
-
-            # only need to do this when usnig owl's tools through mcp
-            cmd = "ps aux | grep python | grep server.py | grep -v grep | awk '{print $2}' | xargs kill -9"
-            try:
-                subprocess.run(cmd, shell=True, check=True)
-                print("Kill command executed successfully.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing kill command: {e}")
 
         end_time = time.perf_counter()
         duration = end_time - start_time
