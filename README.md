@@ -1,5 +1,8 @@
 # RobiAgent
 
+<img width="1115" height="550" alt="Screenshot 2026-04-09 at 10 53 22" src="https://github.com/user-attachments/assets/d086bd10-d2e2-4019-a9bb-da9d2cd3457f" />
+
+
 ## 1. 准备工作
 
 ### 1.1 Python 环境配置
