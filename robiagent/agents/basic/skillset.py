@@ -1,4 +1,4 @@
-from robiagent.backend.lerobot.so101.face_track import FaceTrack, CameraIntrinsics, Settings
+from robiagent.backend.lerobot.so101.face_track import FaceTrack
 
 
 class BasicSkillset(object):
@@ -6,35 +6,27 @@ class BasicSkillset(object):
         super().__init__()
         self.config = config
 
+        self.physical_config = self.config.physical
+        self.task_config = self.config.task
+
     def single_arm_action(self, args):
         body = args['body']
         if body == 'left':
-            port = self.config.physical.arm.left.port
-            robot_id = self.config.physical.arm.left.id
-            intrinsics = CameraIntrinsics(
-                fx=self.config.physical.camera.left.fx,
-                fy=self.config.physical.camera.left.fy,
-                cx=self.config.physical.camera.left.cx,
-                cy=self.config.physical.camera.left.cy,
-            )
-            camera_id = self.config.physical.camera.left.id
+            body_config = self.physical_config.arm.left
+            camera_config = self.physical_config.camera.left
+        elif body == 'right':
+            body_config = self.physical_config.arm.right
+            camera_config = self.physical_config.camera.right
         else:
             raise NotImplementedError
 
         action = args['action']
         if action == 'Tracking face':
-            settings = Settings(
-                camera_id=camera_id,
-                track_duration_s=self.config.task.face_track.duration,
-                hold_last_on_timeout=True
-            )
+            task_config = self.task_config.face_track
             face_track = FaceTrack(
-                port=port,
-                robot_id=robot_id,
-                mp_model="third-party/face_detector.task",  # TODO: avoid hard-coding
-                intrinsics=intrinsics,
-                cfg=settings,
-                disable_calibration=True
+                task_config=task_config,
+                body_config=body_config,
+                camera_config=camera_config
             )
             face_track.connect()
             try:

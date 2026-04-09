@@ -12,7 +12,6 @@
 依赖：
     pip install numpy opencv-python mediapipe
 """
-
 from __future__ import annotations
 import math
 import platform
@@ -97,11 +96,17 @@ def import_so101_classes():
 # =========================
 
 @dataclass
-class CameraIntrinsics:
+class CameraConfig:
+    # intrinsics
     fx: float
     fy: float
     cx: float
     cy: float
+
+    id: int = 0
+    width: int = 640
+    height: int = 480
+    fps: int = 60
 
 
 @dataclass
@@ -113,6 +118,8 @@ class GeometryConfig:
         Y 向下
         Z 向前
     """
+    # monocular face depth approx
+    face_width_m: float = 0.18
 
     # shoulder_pan 轴点在相机坐标系下的位置
     pan_axis_cam: tuple[float, float, float] = (-0.05, 0.30, -0.12)
@@ -128,13 +135,7 @@ class GeometryConfig:
 
 
 @dataclass
-class Settings:
-    # camera
-    camera_id: int = 0
-    width: int = 640
-    height: int = 480
-    fps: int = 60
-
+class TrackingParams:
     # tracker / control
     control_hz: float = 50.0
     alpha_xyz: float = 0.18
@@ -145,12 +146,9 @@ class Settings:
     track_duration_s: float | None = None
     hold_last_on_timeout: bool = True
 
-    # monocular face depth approx
-    face_width_m: float = 0.18
 
-    # geometry
-    geom: GeometryConfig = field(default_factory=GeometryConfig)
-
+@dataclass
+class InternalParams:
     # joint mapping
     pan_sign: float = 1.0
     lift_sign: float = 1.0
@@ -176,6 +174,11 @@ class Settings:
     pan_max_offset: float = 45.0
     lift_min_offset: float = -45.0
     lift_max_offset: float = 45.0
+
+    # 内部状态初始化常量
+    face_x_s: float = -0.05
+    face_y_s: float = 0.0
+    face_z_s: float = 0.8
 
 
 # =========================
@@ -340,22 +343,22 @@ class SimplePhoneGeometryModel:
     - lift 绕 pan 后局部坐标的 X 轴转
     """
 
-    def __init__(self, home_pose: dict[str, float], cfg: Settings):
+    def __init__(self, home_pose, body_config, internal_config):
         self.home_pose = dict(home_pose)
-        self.cfg = cfg
+        self.geometry_config = body_config.geometry
+        self.internal_config = internal_config
 
-        g = cfg.geom
-        self.pan_axis_cam = np.array(g.pan_axis_cam, dtype=np.float64)
-        self.pan_to_lift_home = np.array(g.pan_to_lift_home, dtype=np.float64)
-        self.lift_to_phone_home = np.array(g.lift_to_phone_home, dtype=np.float64)
-        self.screen_normal_home = normalize(np.array(g.screen_normal_home, dtype=np.float64))
+        self.pan_axis_cam = np.array(self.geometry_config.pan_axis_cam, dtype=np.float64)
+        self.pan_to_lift_home = np.array(self.geometry_config.pan_to_lift_home, dtype=np.float64)
+        self.lift_to_phone_home = np.array(self.geometry_config.lift_to_phone_home, dtype=np.float64)
+        self.screen_normal_home = normalize(np.array(self.geometry_config.screen_normal_home, dtype=np.float64))
 
     def pose_to_joint_angles(self, pose: dict[str, float]) -> tuple[float, float]:
-        pan_units = pose["shoulder_pan.pos"] - self.home_pose["shoulder_pan.pos"] - self.cfg.pan_bias
-        lift_units = pose["shoulder_lift.pos"] - self.home_pose["shoulder_lift.pos"] - self.cfg.lift_bias
+        pan_units = pose["shoulder_pan.pos"] - self.home_pose["shoulder_pan.pos"] - self.internal_config.pan_bias
+        lift_units = pose["shoulder_lift.pos"] - self.home_pose["shoulder_lift.pos"] - self.internal_config.lift_bias
 
-        pan_rad = self.cfg.pan_sign * (pan_units / self.cfg.pan_units_per_rad)
-        lift_rad = self.cfg.lift_sign * (lift_units / self.cfg.lift_units_per_rad)
+        pan_rad = self.internal_config.pan_sign * (pan_units / self.internal_config.pan_units_per_rad)
+        lift_rad = self.internal_config.lift_sign * (lift_units / self.internal_config.lift_units_per_rad)
         return pan_rad, lift_rad
 
     def forward(self, pose: dict[str, float]) -> dict[str, Any]:
@@ -406,42 +409,42 @@ class SimplePhoneGeometryModel:
         n_after_unyaw = rot_y(-yaw_des) @ desired_normal
         pitch_des = math.atan2(n_after_unyaw[1], n_after_unyaw[2])
 
-        if abs(yaw_des) < self.cfg.yaw_deadband_rad:
+        if abs(yaw_des) < self.internal_config.yaw_deadband_rad:
             yaw_des = 0.0
-        if abs(pitch_des) < self.cfg.pitch_deadband_rad:
+        if abs(pitch_des) < self.internal_config.pitch_deadband_rad:
             pitch_des = 0.0
 
         desired_pan = (
             self.home_pose["shoulder_pan.pos"]
-            + self.cfg.pan_bias
-            + self.cfg.pan_sign * self.cfg.pan_units_per_rad * yaw_des
+            + self.internal_config.pan_bias
+            + self.internal_config.pan_sign * self.internal_config.pan_units_per_rad * yaw_des
         )
         desired_lift = (
             self.home_pose["shoulder_lift.pos"]
-            + self.cfg.lift_bias
-            + self.cfg.lift_sign * self.cfg.lift_units_per_rad * pitch_des
+            + self.internal_config.lift_bias
+            + self.internal_config.lift_sign * self.internal_config.lift_units_per_rad * pitch_des
         )
 
         desired_pan = clamp(
             desired_pan,
-            self.home_pose["shoulder_pan.pos"] + self.cfg.pan_min_offset,
-            self.home_pose["shoulder_pan.pos"] + self.cfg.pan_max_offset,
+            self.home_pose["shoulder_pan.pos"] + self.internal_config.pan_min_offset,
+            self.home_pose["shoulder_pan.pos"] + self.internal_config.pan_max_offset,
         )
         desired_lift = clamp(
             desired_lift,
-            self.home_pose["shoulder_lift.pos"] + self.cfg.lift_min_offset,
-            self.home_pose["shoulder_lift.pos"] + self.cfg.lift_max_offset,
+            self.home_pose["shoulder_lift.pos"] + self.internal_config.lift_min_offset,
+            self.home_pose["shoulder_lift.pos"] + self.internal_config.lift_max_offset,
         )
 
         pan_step = clamp(
             desired_pan - prev_target_pose["shoulder_pan.pos"],
-            -self.cfg.max_pan_step,
-            self.cfg.max_pan_step,
+            -self.internal_config.max_pan_step,
+            self.internal_config.max_pan_step,
         )
         lift_step = clamp(
             desired_lift - prev_target_pose["shoulder_lift.pos"],
-            -self.cfg.max_lift_step,
-            self.cfg.max_lift_step,
+            -self.internal_config.max_lift_step,
+            self.internal_config.max_lift_step,
         )
 
         next_pose = dict(prev_target_pose)
@@ -470,36 +473,33 @@ class SimplePhoneGeometryModel:
 class FaceTrack:
     def __init__(
         self,
-        port: str,
-        robot_id: str,
-        mp_model: str,
-        intrinsics: CameraIntrinsics,
-        cfg: Optional[Settings] = None,
-        disable_calibration: bool = False,
+        task_config,
+        body_config,
+        camera_config,
+        disable_calibration: bool = True,
     ):
-        self.port = port
-        self.robot_id = robot_id
-        self.mp_model = mp_model
-        self.intrinsics = intrinsics
-        self.cfg = cfg or Settings()
+        self.task_config = task_config
+        self.body_config = body_config
+        self.camera_config = camera_config
+        self.internal_config = InternalParams()
         self.disable_calibration = disable_calibration
 
         self.arm = SO101Controller(
-            port=port,
-            robot_id=robot_id,
+            port=body_config.port,
+            robot_id=body_config.id,
             disable_calibration=disable_calibration,
         )
         self.tracker = FaceTracker(
-            model_path=mp_model,
-            min_detection_confidence=self.cfg.min_detection_confidence,
+            model_path=task_config.model_path,
+            min_detection_confidence=task_config.min_detection_confidence,
         )
 
         self.geom_model: Optional[SimplePhoneGeometryModel] = None
         self.target_pose: Optional[dict[str, float]] = None
 
-        self.face_x_s = -0.05
-        self.face_y_s = 0.0
-        self.face_z_s = 0.8
+        self.face_x_s = self.internal_config.face_x_s
+        self.face_y_s = self.internal_config.face_y_s
+        self.face_z_s = self.internal_config.face_z_s
 
         self.last_face_time = 0.0
         self.last_control_time = 0.0
@@ -511,7 +511,11 @@ class FaceTrack:
 
     def connect(self):
         self.arm.connect()
-        self.geom_model = SimplePhoneGeometryModel(self.arm.home, self.cfg)
+        self.geom_model = SimplePhoneGeometryModel(
+            self.arm.home,
+            self.body_config,
+            self.internal_config
+        )
         self.target_pose = dict(self.arm.home)
         self.connected = True
 
@@ -528,18 +532,16 @@ class FaceTrack:
 
     def refresh_home(self):
         self.arm.home = self.arm.get_pose()
-        self.geom_model = SimplePhoneGeometryModel(self.arm.home, self.cfg)
+        self.geom_model = SimplePhoneGeometryModel(self.arm.home, self.body_config, self.internal_config)
         self.target_pose = dict(self.arm.home)
 
-    def restart_tracking(self, duration_s: float | None = None):
-        if duration_s is not None:
-            self.cfg.track_duration_s = duration_s
+    def restart_tracking(self):
         self.track_start_time = time.time()
         self.tracking_active = True
         self.holding_last_pose = False
 
     def _update_tracking_timeout(self):
-        if self.cfg.track_duration_s is None:
+        if self.task_config.track_duration_s is None:
             return
 
         if self.track_start_time is None:
@@ -547,9 +549,9 @@ class FaceTrack:
             return
 
         elapsed = time.time() - self.track_start_time
-        if elapsed >= self.cfg.track_duration_s:
+        if elapsed >= self.task_config.track_duration_s:
             self.tracking_active = False
-            self.holding_last_pose = self.cfg.hold_last_on_timeout
+            self.holding_last_pose = self.task_config.hold_last_on_timeout
 
     def estimate_face_3d_from_bbox(
         self,
@@ -557,13 +559,13 @@ class FaceTrack:
         v: float,
         face_width_px: float,
     ) -> np.ndarray:
-        fx = self.intrinsics.fx
-        fy = self.intrinsics.fy
-        cx = self.intrinsics.cx
-        cy = self.intrinsics.cy
+        fx = self.camera_config.fx
+        fy = self.camera_config.fy
+        cx = self.camera_config.cx
+        cy = self.camera_config.cy
 
         face_width_px = max(face_width_px, 1.0)
-        Z = fx * self.cfg.face_width_m / face_width_px
+        Z = fx * self.body_config.geometry.face_width_m / face_width_px
         X = (u - cx) * Z / fx
         Y = (v - cy) * Z / fy
         return np.array([X, Y, Z], dtype=np.float64)
@@ -619,7 +621,7 @@ class FaceTrack:
         face = self.tracker.detect_largest_face(frame_bgr, timestamp_ms)
 
         if face is None:
-            if now - self.last_face_time > self.cfg.lost_timeout:
+            if now - self.last_face_time > self.task_config.lost_timeout:
                 if execute:
                     self.arm.go_home()
                 self.target_pose = dict(self.arm.home)
@@ -638,14 +640,14 @@ class FaceTrack:
 
         face_xyz = self.estimate_face_3d_from_bbox(u, v, face_width_px)
 
-        self.face_x_s = ema(self.face_x_s, float(face_xyz[0]), self.cfg.alpha_xyz)
-        self.face_y_s = ema(self.face_y_s, float(face_xyz[1]), self.cfg.alpha_xyz)
-        self.face_z_s = ema(self.face_z_s, float(face_xyz[2]), self.cfg.alpha_xyz)
+        self.face_x_s = ema(self.face_x_s, float(face_xyz[0]), self.task_config.alpha_xyz)
+        self.face_y_s = ema(self.face_y_s, float(face_xyz[1]), self.task_config.alpha_xyz)
+        self.face_z_s = ema(self.face_z_s, float(face_xyz[2]), self.task_config.alpha_xyz)
         face_xyz_s = np.array([self.face_x_s, self.face_y_s, self.face_z_s], dtype=np.float64)
 
         result["face_xyz"] = face_xyz_s
 
-        if now - self.last_control_time >= 1.0 / self.cfg.control_hz:
+        if now - self.last_control_time >= 1.0 / self.task_config.control_hz:
             next_pose, diag = self.geom_model.face_to_desired_pose(
                 face_xyz_cam=face_xyz_s,
                 prev_target_pose=self.target_pose,
@@ -733,10 +735,10 @@ class FaceTrack:
 
     def run_forever(self, return_on_finish: bool = True) -> dict[str, Any] | None:
         cap = open_camera(
-            camera_id=self.cfg.camera_id,
-            width=self.cfg.width,
-            height=self.cfg.height,
-            fps=self.cfg.fps,
+            camera_id=self.camera_config.id,
+            width=self.camera_config.width,
+            height=self.camera_config.height,
+            fps=self.camera_config.fps,
         )
 
         last_result = None
@@ -766,7 +768,7 @@ class FaceTrack:
                     self.refresh_home()
                     print("HOME refreshed from current pose.")
                 elif key == ord("t"):
-                    self.restart_tracking(self.cfg.track_duration_s)
+                    self.restart_tracking()
                     print("Tracking restarted.")
         finally:
             cap.release()

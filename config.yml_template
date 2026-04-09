@@ -1,0 +1,50 @@
+environment:
+    type: basic
+agent:
+    type: basic
+    max_num_tasks_launched: 8
+    max_workers: 4
+    task_waiting_time_in_sec: 0.1
+    task_retry_time_limit: 0
+physical:
+    camera:
+        left:
+            fx: 500
+            fy: 500
+            cx: 320
+            cy: 240
+            id: 0
+            width: 640
+            height: 480
+            fps: 60
+    arm:
+        left:
+            id: "my_awesome_follower_arm"
+            port: "/dev/tty.usbmodem5B141134931"
+            geometry:
+                face_width_m: 0.18
+                pan_axis_cam:
+                    - -0.05
+                    - 0.30
+                    - -0.12
+                pan_to_lift_home:
+                    - 0.00
+                    - -0.075
+                    - 0.035
+                lift_to_phone_home:
+                    - 0.00
+                    - -0.08
+                    - 0.16
+                screen_normal_home:
+                    - 0.00
+                    - -0.08
+                    - 0.16
+task:
+    face_track:
+        model_path: "third-party/face_detector.task"
+        control_hz: 50
+        alpha_xyz: 0.18
+        lost_timeout: 2.0
+        min_detection_confidence: 0.6
+        track_duration_s: 25
+        hold_last_on_timeout: true
