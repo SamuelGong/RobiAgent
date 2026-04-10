@@ -122,16 +122,16 @@ class GeometryConfig:
     face_width_m: float = 0.18
 
     # shoulder_pan 轴点在相机坐标系下的位置
-    pan_axis_cam: tuple[float, float, float] = (-0.05, 0.30, -0.12)
+    pan_axis_cam: tuple[float, float, float] = (0.055, 0.30, -0.13)
 
     # 从 pan 轴点到 lift 轴点的连杆偏移（在 pan=0 的局部坐标里）
-    pan_to_lift_home: tuple[float, float, float] = (0.00, -0.075, 0.035)
+    pan_to_lift_home: tuple[float, float, float] = (0.00, -0.075, 0.03)
 
     # 从 lift 轴点到手机中心的偏移（在 lift=0 的局部坐标里）
-    lift_to_phone_home: tuple[float, float, float] = (0.00, -0.08, 0.16)
+    lift_to_phone_home: tuple[float, float, float] = (0.00, 0.00, 0.12)
 
     # 屏幕法向在 home 几何下的方向（局部坐标）
-    screen_normal_home: tuple[float, float, float] = (0.00, -0.08, 0.16)
+    screen_normal_home: tuple[float, float, float] = (0.00, 0.00, 0.12)
 
 
 @dataclass

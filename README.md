@@ -2,10 +2,9 @@
 
 <img width="1115" height="550" alt="Screenshot 2026-04-09 at 10 53 22" src="https://github.com/user-attachments/assets/d086bd10-d2e2-4019-a9bb-da9d2cd3457f" />
 
+# 1. 准备工作
 
-## 1. 准备工作
-
-### 1.1 Python 环境配置
+## 1.1 Python 环境配置
 
 当前版本的 RobiAgent 首先是基于 LeRobot 构建的，
 因此你需要先准备对应的 conda 环境（假设其名称为 `lerobot`；
@@ -25,11 +24,12 @@ pip install -e .
 
 ```bash
 cp config.yml_template config.yml
+cp .env_template .env
 ```
 
 并对`config.yml`作必要更改，其中关键字段的含义参考[此文档](doc/config_intro.md)。
 
-### 1.2 IPC 方案
+## 1.2 IPC 方案
 
 多进程是 RobiAgent 的一个重要特性，其实现基于 Redis。
 因此，你还需要在系统层面安装并运行 Redis 服务器。
