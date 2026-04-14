@@ -41,7 +41,7 @@ physical:
                     - 0.16
 task:
     face_track:
-        model_path: "third-party/face_detector.task"
+        model_path: "thirdparty/face_detector.task"
         control_hz: 50
         alpha_xyz: 0.18
         lost_timeout: 2.0

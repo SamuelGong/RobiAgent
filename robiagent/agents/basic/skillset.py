@@ -1,4 +1,7 @@
+import asyncio
+import os
 from robiagent.backend.lerobot.so101.face_track import FaceTrack
+from thirdparty.volcengine.tts import BidirectionalTTSClient
 
 
 class BasicSkillset(object):
@@ -44,7 +47,38 @@ class BasicSkillset(object):
         }
         return result
 
+    def microphone_action(self, action):
+        if action == 'Playing introduction':
+            text = "你好，很高兴向你介绍这款新产品！"
+        else:
+            raise NotImplementedError
+
+        async def play_text():
+            client = BidirectionalTTSClient(
+                appid=os.environ["ARK_TTS_APPID"],
+                access_token=os.environ["ARK_TTS_ACCESS_TOKEN"],
+                resource_id="seed-tts-2.0",
+                voice_type="zh_female_vv_uranus_bigtts",
+                sample_rate=24000,
+                encoding="pcm",
+            )
+
+            async with client:
+                await client.speak(
+                    text,
+                    chunk_size=8,
+                    chunk_delay=0.01,
+                )
+
+        asyncio.run(play_text())
+
     def pc_action(self, args):
+        hardware = args['hardware']
+        if hardware == 'microphone':
+            self.microphone_action(args['action'])
+        else:
+            raise NotImplementedError
+
         result = {
             "err_code": 0,
             "detail": ""

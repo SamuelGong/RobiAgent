@@ -5,3 +5,4 @@ inputimeout
 redis
 opencv-python
 mediapipe
+websockets

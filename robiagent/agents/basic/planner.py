@@ -17,26 +17,27 @@ class BasicPlanner():
     def predefined_decomposition(self, task):
         if task in ["demo"]:
             task_list = [
-                {
-                    "name": "track_face",
-                    "description": "Tracking face using left arm",
-                    "dependencies": [],
-                    "skill": "single_arm",
-                    "arguments": {
-                        'body': 'left',
-                        'action': "Tracking face"
-                    }
-                },
                 # {
-                #     "name": "vocal_intro",
-                #     "description": "Playing introduction using microphone",
-                #     "dependencies": ["track_face"],
-                #     "skill": "pc",
+                #     "name": "track_face",
+                #     "description": "Tracking face using left arm",
+                #     "dependencies": [],
+                #     "skill": "single_arm",
                 #     "arguments": {
-                #         'hardware': "microphone",
-                #         'action': "Playing introduction"
+                #         'body': 'left',
+                #         'action': "Tracking face"
                 #     }
                 # },
+                {
+                    "name": "vocal_intro",
+                    "description": "Playing introduction using microphone",
+                    "dependencies": [],
+                    # "dependencies": ["track_face"],
+                    "skill": "pc",
+                    "arguments": {
+                        'hardware': "microphone",
+                        'action': "Playing introduction"
+                    }
+                },
                 # {
                 #     "name": "usage_show",
                 #     "description": "Demonstrating a new feature using right arm",
