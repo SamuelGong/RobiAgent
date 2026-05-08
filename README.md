@@ -20,15 +20,6 @@ conda activate lerobot
 pip install -e .
 ```
 
-最后执行：
-
-```bash
-cp config.yml_template config.yml
-cp .env_template .env
-```
-
-并对`config.yml`作必要更改，其中关键字段的含义参考[此文档](doc/config_intro.md)。
-
 ## 1.2 IPC 方案
 
 多进程是 RobiAgent 的一个重要特性，其实现基于 Redis。
@@ -53,11 +44,18 @@ lerobot-find-port
 lerobot-calibrate --robot.type=so101_follower --robot.port=<你确认的端口> --robot.id=<你指定的 ID>
 ```
 
-不要忘记相应修改 `config.yml`。
-
 # 2. 演示示例
 
-先试试这个简单示例！
+如果是第一次运行，需要先创建必要的配置文件`config.yml`和`.env`：
+
+```bash
+cp config.yml_template config.yml
+cp .env_template .env
+```
+
+并对它们作必要更改，其中字段含义分别参考[config_intro.md](doc/config_intro.md)和[env_intro.md](doc/env_intro.md)。
+
+随后，试试这个简单示例！
 
 ```bash
 ra demo

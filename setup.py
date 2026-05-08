@@ -6,8 +6,6 @@ with open('requirements.txt') as f:
 setup(
     name="robiagent",
     version="0.1",
-    author="Zhifeng Jiang",
-    author_email="zjiangaj@connect.ust.hk",
     description="'RobiAgent' is your command-line agent for physical intelligence.",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",

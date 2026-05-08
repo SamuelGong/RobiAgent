@@ -1,10 +1,8 @@
 import os
 import time
 import json
-import pickle
 import dotenv
 import logging
-import threading
 import traceback
 from multiprocessing import Pool
 import multiprocessing as mp
@@ -12,13 +10,13 @@ from robiagent.agents.basic.skillset import BasicSkillset
 from robiagent.utils.misc import set_log
 from robiagent.agents.base import BaseAgent
 from robiagent.agents.basic.planner import BasicPlanner
-from robiagent.agents.basic.const import END, INPUT_REQUIRED
+from robiagent.agents.basic.const import END
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 
 class BasicAgent(BaseAgent):
-    INPUT_TIMEOUT = 120
+    TASK_WAITING_TIME_IN_SEC = 0.1
 
     def __init__(self, config, environment):
         self.environment = environment
@@ -35,12 +33,19 @@ class BasicAgent(BaseAgent):
 
         self.skillset = BasicSkillset(config)
 
-    def preprocessing_display(self, task):
-        print_tag = "[Execution]"
-        print(f"\n{print_tag} I now run task {task['name']} with skill {task['skill']}.\n"
+    @staticmethod
+    def preprocessing_display(task):
+        print(f"\n[Execution] I am now about to run task {task['name']} with skill {task['skill']}.\n"
               f"\tDetail: {task['description'][:500]}...")
 
-    def process_a_task(self, overall_task, task):  # this run in a new process
+    @staticmethod
+    def postprocessing_display(task, task_succeeded, detail):
+        print(f'\n[Execution] Task {task['name']} with skill {task['skill']} '
+              f'{"succeeded" if task_succeeded else "failed"}.')
+        logging.info(f'Task {task['name']} with skill {task['skill']} '
+                     f'{"succeeded" if task_succeeded else "failed"}:\n{detail}')
+
+    def process_a_task(self, task):  # this run in a new process
         task_name = task['name']
         task_skill = task['skill']
         dotenv.load_dotenv(dotenv_path='.env', override=True)
@@ -52,6 +57,7 @@ class BasicAgent(BaseAgent):
 
         retry_count = 0
         max_retries = self.config.task_retry_time_limit
+        task_succeeded = False
         while retry_count <= max_retries:
             try:
                 arguments = task['arguments']
@@ -61,8 +67,6 @@ class BasicAgent(BaseAgent):
                     skill_args=arguments
                 )
 
-                logging.info(f'Task {task_name} with skill {task_skill} '
-                             f'completed with result:\n{result}')
                 self.environment.set_task_result(
                     task=task,
                     result=result
@@ -70,14 +74,12 @@ class BasicAgent(BaseAgent):
 
                 task_succeeded = result["err_code"] == 0
                 detail = result["detail"]
-                logging.info(f'Task {task_name} with skill {task_skill} '
-                             f'{"succeeded" if task_succeeded else "failed"}:\n{detail}')
+                self.postprocessing_display(task, task_succeeded, detail)
             except Exception as e:
                 result = f"Exception encountered: {e}\n{traceback.format_exc()}"
                 logging.info(f'Task {task_name} with skill {task_skill} '
                              f'failed as {result}')
 
-                task_succeeded = False
                 self.environment.set_task_result(
                     task=task,
                     result=result
@@ -97,40 +99,6 @@ class BasicAgent(BaseAgent):
         duration = end_time - begin_time
         logging.info(f'Processing for task {task_name} with skill {task_skill} '
                      f'finished in {round(duration, 3)}s')
-
-    def relay_input_for_workers(self):  # in a separate thread of the main process
-        subscriber = self.environment.get_message_subscriber(
-            channels=[INPUT_REQUIRED, END]
-        )
-        for message in subscriber.listen():
-            raw_data = message['data']
-            if not isinstance(raw_data, bytes):
-                continue
-
-            channel = message["channel"].decode()
-            try:
-                data = pickle.loads(raw_data)
-            except Exception as e:
-                logging.error(f'Unable to load data from channel {channel} due to {e}')
-            if channel == INPUT_REQUIRED:
-                from inputimeout import inputimeout, TimeoutOccurred
-                try:
-                    user_input = inputimeout(
-                        prompt=data["prompt"],
-                        timeout=self.INPUT_TIMEOUT
-                    )
-                    logging.info(f"User input got (length: {len(user_input)}).")
-                except TimeoutOccurred:
-                    user_input = ""
-                    logging.error("Time's up! No user input received.")
-
-                self.environment.set_data_for_subprocess(
-                    data=user_input,
-                    target_pid=data["target_pid"]
-                )
-            elif channel == END:
-                logging.info(f"Asked to quit")
-                break
 
     def refresh_pending_tasks(self):
         self.pending_task_names = []
@@ -187,17 +155,13 @@ class BasicAgent(BaseAgent):
 
     def serve(self, overall_task):
         start_time = time.perf_counter()
-        logging.info(f"Starting serving the task: {overall_task}")
+        logging.info(f"Starting serving the overall task: {overall_task}")
 
         num_tasks_launched = 0
         try:
             all_tasks = self.planner.plan(overall_task)
             self.set_tasks(all_tasks)
             async_results = {}
-
-            # Because under the "spawn" start method, sub-processes cannot access the terminal input
-            t = threading.Thread(target=self.relay_input_for_workers)
-            t.start()
 
             abort = False
             mp.set_start_method("spawn", force=True)
@@ -227,16 +191,18 @@ class BasicAgent(BaseAgent):
                             logging.info(f"Exceeded max number of tasks. Aborting...")
                             abort = True
                             break
-                        result = pool.apply_async(self.process_a_task, (overall_task, ready_task))
+                        result = pool.apply_async(self.process_a_task, (ready_task,))
                         self.mark_running_task(ready_task["name"], result, async_results)
                     if abort:
                         break
 
                     # Avoid busy waiting
                     if not ready_task and not newly_finished_tasks:
-                        time.sleep(self.config.task_waiting_time_in_sec)
+                        time.sleep(self.TASK_WAITING_TIME_IN_SEC)
                         continue
 
+        except KeyboardInterrupt:
+            print("Interrupted.")
         except Exception as e:
             print(f"Failed to serve query due to {e}")
             print(traceback.format_exc())
@@ -246,5 +212,5 @@ class BasicAgent(BaseAgent):
 
         end_time = time.perf_counter()
         duration = end_time - start_time
-        print(f"Task served in {round(duration, 3)}s")
+        print(f"\nTask served in {round(duration, 3)}s")
         logging.info(f"Task served in {round(duration, 3)}s")

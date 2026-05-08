@@ -1,16 +1,42 @@
 import os
+import sys
 import yaml
 import dotenv
 import logging
 import argparse
+from contextlib import contextmanager
 from datetime import datetime
 from munch import DefaultMunch  # nested dict to object
+
+
+@contextmanager
+def suppress_native_stderr():
+    """Temporarily redirect file descriptor 2 to /dev/null.
+
+    Needed to silence native (C/C++) stderr output from libraries such as
+    MediaPipe (absl LOG) and TFLite (XNNPACK INFO) that bypass Python's
+    logging entirely and therefore cannot be controlled via the standard
+    `logging` module, `absl.logging.set_verbosity`, `GLOG_minloglevel`, or
+    `TF_CPP_MIN_LOG_LEVEL`.
+
+    Not thread-safe; use only around a single, short native call.
+    """
+    sys.stderr.flush()
+    saved_fd = os.dup(2)
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull_fd, 2)
+        yield
+    finally:
+        sys.stderr.flush()
+        os.dup2(saved_fd, 2)
+        os.close(devnull_fd)
+        os.close(saved_fd)
 
 
 def set_log(log_path, log_level=logging.INFO):
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
-    # otherwise, run_gaia will produce messy logs
 
     logging.basicConfig(
         filename=log_path,
@@ -37,7 +63,7 @@ def setup():
     parser = argparse.ArgumentParser()
     parser.add_argument('--working_dir', type=str, default='.',
                         help='path to configuration file')
-    args, _ = parser.parse_known_args()  # <-- Ignore unrecognized arguments
+    args, _ = parser.parse_known_args()  # Ignore unrecognized arguments
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_filename = f"{timestamp}.log"

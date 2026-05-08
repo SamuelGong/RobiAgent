@@ -1,7 +1,15 @@
-import asyncio
-import os
-from robiagent.backend.lerobot.so101.face_track import FaceTrack
-from thirdparty.volcengine.tts import BidirectionalTTSClient
+from robiagent.backend.arm.face_track import FaceTrack
+from robiagent.backend.arm.face_track_new import FaceTrackNew
+from robiagent.backend.host.vocal_intro import VocalIntro
+
+
+"""
+In case one need shell code execution, consider reusing the following built-in ability:
+
+from robiagent.backend.host.shell import Shell
+shell = Shell()
+shell.execute_code(command)
+"""
 
 
 class BasicSkillset(object):
@@ -13,6 +21,7 @@ class BasicSkillset(object):
         self.task_config = self.config.task
 
     def single_arm_action(self, args):
+        # Currently a body uses its own camera
         body = args['body']
         if body == 'left':
             body_config = self.physical_config.arm.left
@@ -24,20 +33,29 @@ class BasicSkillset(object):
             raise NotImplementedError
 
         action = args['action']
-        if action == 'Tracking face':
-            task_config = self.task_config.face_track
-            face_track = FaceTrack(
+        if 'tracking face' in action.lower():
+            if "new" in action.lower() in action.lower():
+                task_config = self.task_config.face_track_new
+                face_track = FaceTrackNew
+            else:
+                task_config = self.task_config.face_track
+                face_track = FaceTrack
+
+            arm = face_track(
                 task_config=task_config,
                 body_config=body_config,
                 camera_config=camera_config
             )
-            face_track.connect()
-            try:
-                face_track.run_forever(return_on_finish=True)
-            finally:
-                face_track.disconnect()
+            arm.connect()
 
-            resp = "done"
+            try:
+                arm.run_forever(return_on_finish=True)
+                # arm.run_forever(return_on_finish=True, execute=False)  # for debugging with no real movement
+                resp = "done"
+            except KeyboardInterrupt:
+                resp = "interrupted"
+            finally:
+                arm.disconnect()
         else:
             raise NotImplementedError
 
@@ -47,42 +65,15 @@ class BasicSkillset(object):
         }
         return result
 
-    def microphone_action(self, action):
-        if action == 'Playing introduction':
-            text = "你好，很高兴向你介绍这款新产品！"
-        else:
-            raise NotImplementedError
-
-        async def play_text():
-            client = BidirectionalTTSClient(
-                appid=os.environ["ARK_TTS_APPID"],
-                access_token=os.environ["ARK_TTS_ACCESS_TOKEN"],
-                resource_id="seed-tts-2.0",
-                voice_type="zh_female_vv_uranus_bigtts",
-                sample_rate=24000,
-                encoding="pcm",
-            )
-
-            async with client:
-                await client.speak(
-                    text,
-                    chunk_size=8,
-                    chunk_delay=0.01,
-                )
-
-        asyncio.run(play_text())
-
     def pc_action(self, args):
-        hardware = args['hardware']
-        if hardware == 'microphone':
-            self.microphone_action(args['action'])
+        action = args['action']
+        if 'playing introduction' in action.lower():
+            task_config = self.task_config.vocal_intro
+            vocal_intro = VocalIntro(task_config)
+            result = vocal_intro.play()
         else:
             raise NotImplementedError
 
-        result = {
-            "err_code": 0,
-            "detail": ""
-        }
         return result
 
     def use_skill(self, skill_name, skill_args):
@@ -94,12 +85,3 @@ class BasicSkillset(object):
             raise NotImplementedError
 
         return result
-
-
-'''
-In case one need shell code execution:
-
-from robiagent.backend.host.shell import Shell
-shell = Shell()
-shell.execute_code(command)
-'''

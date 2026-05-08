@@ -17,31 +17,40 @@ class BasicPlanner():
     def predefined_decomposition(self, task):
         if task in ["demo"]:
             task_list = [
+                {
+                    "name": "track_face",
+                    "description": "Tracking face using left arm",
+                    "dependencies": [],
+                    "skill": "single_arm",
+                    "arguments": {
+                        'body': 'left',
+                        'action': "Tracking face"
+                    }
+                },
                 # {
-                #     "name": "track_face",
-                #     "description": "Tracking face using left arm",
+                #     "name": "track_face_new",
+                #     "description": "Tracking face (new) using left arm",
                 #     "dependencies": [],
                 #     "skill": "single_arm",
                 #     "arguments": {
                 #         'body': 'left',
-                #         'action': "Tracking face"
+                #         'action': "Tracking face (new)"
                 #     }
                 # },
-                {
-                    "name": "vocal_intro",
-                    "description": "Playing introduction using microphone",
-                    "dependencies": [],
-                    # "dependencies": ["track_face"],
-                    "skill": "pc",
-                    "arguments": {
-                        'hardware': "microphone",
-                        'action': "Playing introduction"
-                    }
-                },
+                # {
+                #     "name": "vocal_intro",
+                #     "description": "Playing introduction using microphone",
+                #     # "dependencies": [],
+                #     "dependencies": ["track_face_new"],
+                #     "skill": "pc",
+                #     "arguments": {
+                #         'action': "Playing introduction"
+                #     }
+                # },
                 # {
                 #     "name": "usage_show",
                 #     "description": "Demonstrating a new feature using right arm",
-                #     "dependencies": ["track_face"],
+                #     "dependencies": ["track_face_new"],
                 #     "skill": "single_arm",
                 #     "arguments": {
                 #         'body': 'right',
@@ -57,7 +66,7 @@ class BasicPlanner():
     def plan(self, task):
         logging.info(f"Starting to plan")
 
-        task_list = self.predefined_decomposition(task)
+        task_list = self.predefined_decomposition(task)  # TODO: to support model-based planning
         logging.info(f"Planning ended")
         for task in task_list:
             self.task_name_history.add(task["name"])
