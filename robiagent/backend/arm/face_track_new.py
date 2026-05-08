@@ -123,7 +123,7 @@ def slerp_rotmat(rot_a: np.ndarray, rot_b: np.ndarray, alpha: float) -> np.ndarr
 
 @dataclass
 class NewInternalParams:
-    urdf_path: str
+    urdf_path: str = ""
 
     # EMA state seeds (camera frame), same defaults as face_track.InternalParams.
     face_x_s: float = -0.05
@@ -135,7 +135,7 @@ class NewInternalParams:
     tilt_tolerance_deg: float = 5.0
     ik_target_frame_name: str = "gripper_frame_link"
     # Max Cartesian step (m) per control tick toward IK input; <= 0 disables position slew.
-    max_ee_step_m: float = 0.005
+    max_ee_step_m: float = 0.01
     # 1.0 = no extra orientation smoothing; (0, 1) = slerp from last sent rot toward vision.
     ee_ori_slerp_alpha: float = 1.0
     orientation_alpha: float = 0.3
