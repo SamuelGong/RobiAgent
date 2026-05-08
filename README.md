@@ -53,7 +53,7 @@ cp config.yml_template config.yml
 cp .env_template .env
 ```
 
-并对它们作必要更改，其中字段含义分别参考[config_intro.md](doc/config_intro.md)和[env_intro.md](doc/env_intro.md)。
+并对它们作必要更改，其中字段含义分别参考 [config_intro.md](doc/config_intro.md) 和 [env_intro.md](doc/env_intro.md)。
 
 随后，试试这个简单示例！
 
