@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from robiagent.utils.misc import suppress_native_stderr
 
+from robiagent.backend.arm.tracking_session import TrackingSession, run_face_tracking_loop
+
 
 # =========================
 # Utility
@@ -74,6 +76,24 @@ def import_so101_classes():
         from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
         return SO101FollowerConfig, SO101Follower
 
+def estimate_face_3d_from_bbox(
+    camera_config,
+    face_width_m,
+    u: float,
+    v: float,
+    face_width_px: float,
+) -> np.ndarray:
+    fx = camera_config.fx
+    fy = camera_config.fy
+    cx = camera_config.cx
+    cy = camera_config.cy
+
+    face_width_px = max(face_width_px, 1.0)
+    Z = fx * face_width_m / face_width_px
+    X = (u - cx) * Z / fx
+    Y = (v - cy) * Z / fy
+    return np.array([X, Y, Z], dtype=np.float64)
+
 
 # =========================
 # Configs
@@ -124,13 +144,14 @@ class FaceTracker:
         FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
 
-        options = FaceDetectorOptions(
-            base_options=BaseOptions(model_asset_path=model_path),
-            running_mode=VisionRunningMode.VIDEO,
-            min_detection_confidence=min_detection_confidence,
-        )
         with suppress_native_stderr():
-            self.detector = FaceDetector.create_from_options(options)
+            self.detector = FaceDetector.create_from_options(
+                FaceDetectorOptions(
+                    base_options=BaseOptions(model_asset_path=model_path),
+                    running_mode=VisionRunningMode.VIDEO,
+                    min_detection_confidence=min_detection_confidence,
+                )
+            )
 
     def close(self):
         try:
@@ -404,10 +425,7 @@ class FaceTrack:
         self.task_config = task_config
         self.body_config = body_config
         self.camera_config = camera_config
-        if internal_config is None:
-            self.internal_config = InternalParams()
-        else:
-            self.internal_config = internal_config
+        self.internal_config = internal_config or InternalParams()
         self.disable_calibration = disable_calibration
 
         self.arm = SO101Controller(
@@ -421,19 +439,15 @@ class FaceTrack:
         )
 
         self.geom_model: Optional[SimplePhoneGeometryModel] = None
-        self.target_pose: Optional[dict[str, float]] = None
 
+        self.target_pose: Optional[dict[str, float]] = None
         self.face_x_s = self.internal_config.face_x_s
         self.face_y_s = self.internal_config.face_y_s
         self.face_z_s = self.internal_config.face_z_s
 
-        self.last_face_time = 0.0
+        self.session = TrackingSession(task_config)
         self.last_control_time = 0.0
         self.connected = False
-
-        self.track_start_time: float | None = None
-        self.tracking_active: bool = True
-        self.holding_last_pose: bool = False
 
     def connect(self):
         self.arm.connect()
@@ -445,9 +459,7 @@ class FaceTrack:
         self.target_pose = dict(self.arm.home)
         self.connected = True
 
-        self.track_start_time = time.time()
-        self.tracking_active = True
-        self.holding_last_pose = False
+        self.session.begin_after_connect()
 
     def disconnect(self):
         try:
@@ -462,39 +474,7 @@ class FaceTrack:
         self.target_pose = dict(self.arm.home)
 
     def restart_tracking(self):
-        self.track_start_time = time.time()
-        self.tracking_active = True
-        self.holding_last_pose = False
-
-    def _update_tracking_timeout(self):
-        if self.task_config.track_duration_s is None:
-            return
-
-        if self.track_start_time is None:
-            self.track_start_time = time.time()
-            return
-
-        elapsed = time.time() - self.track_start_time
-        if elapsed >= self.task_config.track_duration_s:
-            self.tracking_active = False
-            self.holding_last_pose = self.task_config.hold_last_on_timeout
-
-    def estimate_face_3d_from_bbox(
-        self,
-        u: float,
-        v: float,
-        face_width_px: float,
-    ) -> np.ndarray:
-        fx = self.camera_config.fx
-        fy = self.camera_config.fy
-        cx = self.camera_config.cx
-        cy = self.camera_config.cy
-
-        face_width_px = max(face_width_px, 1.0)
-        Z = fx * self.task_config.geometry.face_width_m / face_width_px
-        X = (u - cx) * Z / fx
-        Y = (v - cy) * Z / fy
-        return np.array([X, Y, Z], dtype=np.float64)
+        self.session.restart()
 
     def process_frame(
         self,
@@ -508,7 +488,7 @@ class FaceTrack:
             raise RuntimeError("Geometry model / target pose not initialized.")
 
         now = time.time()
-        self._update_tracking_timeout()
+        self.session.update_timeout(now)
 
         if timestamp_ms is None:
             timestamp_ms = int(now * 1000)
@@ -527,7 +507,7 @@ class FaceTrack:
             "overlay": {},
         }
 
-        if not self.tracking_active and self.holding_last_pose:
+        if self.session.timed_out_hold_last():
             fk = self.geom_model.forward(self.target_pose)
             result["ok"] = True
             result["finished"] = True
@@ -543,7 +523,7 @@ class FaceTrack:
         face = self.tracker.detect_largest_face(frame_bgr, timestamp_ms)
 
         if face is None:
-            if now - self.last_face_time > self.task_config.lost_timeout:
+            if now - self.session.last_face_time > self.task_config.lost_timeout:
                 if execute:
                     self.arm.go_home()
                 self.target_pose = dict(self.arm.home)
@@ -553,14 +533,15 @@ class FaceTrack:
             result["ok"] = True
             return result
 
-        self.last_face_time = now
+        self.session.mark_face_seen(now)
         result["has_face"] = True
 
         x, y, bw, bh = face["bbox"]
         u, v = face["center"]
         face_width_px = face["width_px"]
 
-        face_xyz = self.estimate_face_3d_from_bbox(u, v, face_width_px)
+        face_xyz = estimate_face_3d_from_bbox(self.camera_config, self.task_config.geometry.face_width_m,
+                                              u, v, face_width_px)
 
         self.face_x_s = ema(self.face_x_s, float(face_xyz[0]), self.task_config.alpha_xyz)
         self.face_y_s = ema(self.face_y_s, float(face_xyz[1]), self.task_config.alpha_xyz)
@@ -652,43 +633,22 @@ class FaceTrack:
 
     def run_forever(self, return_on_finish: bool = True,
                     execute: bool = True) -> dict[str, Any] | None:
-        cap = open_camera(
-            camera_id=self.camera_config.id,
-            width=self.camera_config.width,
-            height=self.camera_config.height,
-            fps=self.camera_config.fps,
+        def on_key(key: int) -> None:
+            if key == ord("h"):
+                self.arm.go_home()
+                self.target_pose = dict(self.arm.home)
+            elif key == ord("r"):
+                self.refresh_home()
+                print("HOME refreshed from current pose.")
+            elif key == ord("t"):
+                self.restart_tracking()
+                print("Tracking restarted.")
+
+        return run_face_tracking_loop(
+            self,
+            self.camera_config,
+            window_title="Face Tracking",
+            return_on_finish=return_on_finish,
+            execute=execute,
+            on_key=on_key,
         )
-
-        last_result = None
-        try:
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    continue
-
-                result = self.process_frame(frame, execute=execute)
-                last_result = result
-
-                display = self.draw_debug(frame, result)
-                cv2.imshow("Face Tracking", display)
-                key = cv2.waitKey(1) & 0xFF
-
-                if return_on_finish and result.get("finished", False):
-                    break
-
-                if key == 27 or key == ord("q"):
-                    break
-                elif key == ord("h"):
-                    self.arm.go_home()
-                    self.target_pose = dict(self.arm.home)
-                elif key == ord("r"):
-                    self.refresh_home()
-                    print("HOME refreshed from current pose.")
-                elif key == ord("t"):
-                    self.restart_tracking()
-                    print("Tracking restarted.")
-        finally:
-            cap.release()
-            cv2.destroyAllWindows()
-
-        return last_result

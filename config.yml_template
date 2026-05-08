@@ -51,22 +51,6 @@ task:
     face_track_new:
         geometry:
             face_width_m: 0.18
-            pan_axis_cam:
-                - 0.055
-                - 0.30
-                - -0.13
-            pan_to_lift_home:
-                - 0.00
-                - -0.075
-                - 0.03
-            lift_to_phone_home:
-                - 0.00
-                - 0.00
-                - 0.12
-            screen_normal_home:
-                - 0.00
-                - 0.00
-                - 0.12
             camera_origin_in_ik_m:
                 - 0.0
                 - 0.17
@@ -83,7 +67,6 @@ task:
         ik_bisection_max_depth: 5
         ik_pos_tol_m: 0.01
         ik_rot_tol_rad: 0.10
-        ik_fail_action: "hold_current"
     vocal_intro:
         text: "你好，很高兴向你介绍这款新产品！"
         chunk_size: 8
