@@ -29,26 +29,104 @@ def parse_axis_label(axis_label: str) -> tuple[int, float]:
     return idx, sign
 
 
+def build_rotmat_with_forward_axis_keep_current_roll(
+    forward_ik: np.ndarray,
+    axis_label: str,
+    current_rot: np.ndarray,
+) -> np.ndarray:
+    """
+    Build a full EE rotation whose selected forward axis matches forward_ik,
+    while preserving the current roll as much as possible.
+
+    This avoids arbitrary world-up roll completion.
+    """
+    f = normalize(forward_ik)
+    axis_idx, sign = parse_axis_label(axis_label)
+    primary = sign * f
+
+    def project_ref(ref: np.ndarray, normal: np.ndarray) -> np.ndarray:
+        v = ref - normal * float(np.dot(ref, normal))
+        if np.linalg.norm(v) >= 1e-8:
+            return normalize(v)
+
+        # fallback only when current ref is degenerate
+        for alt in (
+            np.array([1.0, 0.0, 0.0], dtype=np.float64),
+            np.array([0.0, 1.0, 0.0], dtype=np.float64),
+            np.array([0.0, 0.0, 1.0], dtype=np.float64),
+        ):
+            v = alt - normal * float(np.dot(alt, normal))
+            if np.linalg.norm(v) >= 1e-8:
+                return normalize(v)
+
+        raise RuntimeError("Cannot build rotation: degenerate forward/ref vectors")
+
+    if axis_idx == 0:
+        # EE ±X is screen normal. Preserve current Y as roll reference.
+        x_axis = primary
+        y_axis = project_ref(current_rot[:, 1], x_axis)
+        z_axis = normalize(np.cross(x_axis, y_axis))
+        y_axis = normalize(np.cross(z_axis, x_axis))
+        return np.column_stack([x_axis, y_axis, z_axis])
+
+    if axis_idx == 1:
+        # EE ±Y is screen normal. Preserve current Z as roll reference.
+        y_axis = primary
+        z_axis = project_ref(current_rot[:, 2], y_axis)
+        x_axis = normalize(np.cross(y_axis, z_axis))
+        z_axis = normalize(np.cross(x_axis, y_axis))
+        return np.column_stack([x_axis, y_axis, z_axis])
+
+    # EE ±Z is screen normal. Preserve current X as roll reference.
+    z_axis = primary
+    x_axis = project_ref(current_rot[:, 0], z_axis)
+    y_axis = normalize(np.cross(z_axis, x_axis))
+    x_axis = normalize(np.cross(y_axis, z_axis))
+    return np.column_stack([x_axis, y_axis, z_axis])
+
+
 def build_rotmat_with_forward_axis(
     forward_ik: np.ndarray, axis_label: str
 ) -> np.ndarray:
+    """
+    Fallback full-rotation builder.
+
+    Normal control path should prefer build_rotmat_with_forward_axis_keep_current_roll()
+    because the task mainly cares about screen normal, not arbitrary roll.
+
+    This function is only used when no current EE rotation is available, or as a
+    generic fallback. It uses world +Y as the roll reference because this was
+    empirically more stable than world +Z for the screen-normal task.
+    """
     f = normalize(forward_ik)
-    up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
+    # Experiment A: always use world +Y as roll reference.
+    up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+    # Degenerate only if forward is almost parallel to +Y/-Y.
     if abs(float(np.dot(f, up))) > 0.98:
-        up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+
     t = normalize(np.cross(up, f))
+    if np.linalg.norm(t) < 1e-8:
+        # Last-resort fallback; should almost never happen.
+        up = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        t = normalize(np.cross(up, f))
 
     axis_idx, sign = parse_axis_label(axis_label)
+
     if axis_idx == 0:
         x_axis = sign * f
         y_axis = t
         z_axis = normalize(np.cross(x_axis, y_axis))
         return np.column_stack([x_axis, y_axis, z_axis])
+
     if axis_idx == 1:
         y_axis = sign * f
         z_axis = t
         x_axis = normalize(np.cross(y_axis, z_axis))
         return np.column_stack([x_axis, y_axis, z_axis])
+
     z_axis = sign * f
     x_axis = t
     y_axis = normalize(np.cross(z_axis, x_axis))
@@ -102,6 +180,11 @@ def quat_to_rotmat(q: np.ndarray) -> np.ndarray:
     )
 
 
+def normal_angle_deg(n_a: np.ndarray, n_b: np.ndarray) -> float:
+    dot = clamp(float(np.dot(normalize(n_a), normalize(n_b))), -1.0, 1.0)
+    return math.degrees(math.acos(dot))
+
+
 def slerp_rotmat(rot_a: np.ndarray, rot_b: np.ndarray, alpha: float) -> np.ndarray:
     alpha = clamp(alpha, 0.0, 1.0)
     qa = rotmat_to_quat(rot_a)
@@ -131,13 +214,9 @@ class NewInternalParams:
     face_z_s: float = 0.8
 
     distance_tolerance_m: float = 0.03
-    screen_tilt_deg: float = 55.0
+    screen_tilt_deg: float = 30.0
     tilt_tolerance_deg: float = 5.0
     ik_target_frame_name: str = "gripper_frame_link"
-    # Max Cartesian step (m) per control tick toward IK input; <= 0 disables position slew.
-    max_ee_step_m: float = 0.01
-    # 1.0 = no extra orientation smoothing; (0, 1) = slerp from last sent rot toward vision.
-    ee_ori_slerp_alpha: float = 1.0
     orientation_alpha: float = 0.3
     cam_to_ik_rot: tuple[
         tuple[float, float, float],
@@ -150,16 +229,24 @@ class NewInternalParams:
     )
     pan_axis_ik: tuple[float, float, float] = (0.0, 0.0, 0.0)
     ee_forward_axis: str = "+Z"
-    target_plane_below_eye_m: float = 0.05
+    target_plane_below_eye_m: float = 0.15
     ik_mode: str = "hard_bisection"
     ik_bisection_max_depth: int = 5
-    ik_pos_tol_m: float = 0.01
+    ik_pos_tol_m: float = 0.02
     ik_rot_tol_rad: float = 0.10
-    # vision_pos - actual_pos slow integral in IK frame; requires torque margin.
-    outer_loop_pos_enable: bool = True
-    outer_loop_ki_pos: float = 0.05
-    outer_loop_bias_max_m: float = 0.10
-    outer_loop_reset_on_no_face: bool = True
+
+    # Face stationary hold / anchor gate.
+    face_hold_enabled: bool = True
+    face_hold_release_m: float = 0.025
+    face_hold_candidate_m: float = 0.015
+    face_hold_stable_s: float = 0.10
+
+    # Command target slew limiter.
+    target_slew_enabled: bool = True
+    target_pos_deadband_m: float = 0.004  # 4 mm
+    target_normal_deadband_deg: float = 0.5  # 0.5 deg
+    target_max_pos_step_m: float = 0.001  # 1 cm / control tick
+    target_max_normal_step_deg: float = 1.0  # 1 deg / control tick
 
 
 @dataclass
@@ -291,6 +378,46 @@ class SO101AdvancedController:
             joints_act["gripper.pos"] = float(self.home["gripper.pos"])
         return joints_act
 
+    def _rvec_to_ee_state(self, pos: np.ndarray, rvec: np.ndarray) -> EEPoseState:
+        rot, _ = cv2.Rodrigues(rvec.reshape(3, 1))
+        normal = extract_forward_from_rotmat(rot, self.internal.ee_forward_axis)
+        return EEPoseState(
+            pos=pos.astype(np.float64),
+            rvec=rvec.reshape(3).astype(np.float64),
+            rot=rot,
+            normal=normal,
+        )
+
+    def _ee_state_from_joint_fk(
+        self, robot_obs: dict[str, Any]
+    ) -> tuple[Optional[EEPoseState], str]:
+        if self.joints_to_ee is None:
+            return None, "joints_to_ee_not_initialized"
+        try:
+            action_like = {
+                k: float(robot_obs[k]) for k in self.action_keys if k in robot_obs
+            }
+            ee_obs = self.joints_to_ee((action_like, robot_obs))
+            pos = np.array(
+                [
+                    float(ee_obs["ee.x"]),
+                    float(ee_obs["ee.y"]),
+                    float(ee_obs["ee.z"]),
+                ],
+                dtype=np.float64,
+            )
+            rvec = np.array(
+                [
+                    float(ee_obs["ee.wx"]),
+                    float(ee_obs["ee.wy"]),
+                    float(ee_obs["ee.wz"]),
+                ],
+                dtype=np.float64,
+            )
+            return self._rvec_to_ee_state(pos, rvec), ""
+        except Exception as e:
+            return None, f"{type(e).__name__}: {e}"
+
     def _pose_to_target(
         self, pose: EEPoseState, template: EEPoseTarget
     ) -> EEPoseTarget:
@@ -389,47 +516,12 @@ class SO101AdvancedController:
     def get_actual_ee_state(
         self, robot_obs: Optional[dict[str, Any]] = None
     ) -> tuple[Optional[EEPoseState], str]:
-        if self.robot is None or self.joints_to_ee is None:
-            return None, "robot_or_fk_not_initialized"
-        try:
-            if robot_obs is None:
-                robot_obs = self.robot.get_observation()
-            if all(
-                k in robot_obs
-                for k in ("ee.x", "ee.y", "ee.z", "ee.wx", "ee.wy", "ee.wz")
-            ):
-                x, y, z = (
-                    float(robot_obs["ee.x"]),
-                    float(robot_obs["ee.y"]),
-                    float(robot_obs["ee.z"]),
-                )
-                wx, wy, wz = (
-                    float(robot_obs["ee.wx"]),
-                    float(robot_obs["ee.wy"]),
-                    float(robot_obs["ee.wz"]),
-                )
-            else:
-                action_like = {
-                    k: float(robot_obs[k]) for k in self.action_keys if k in robot_obs
-                }
-                ee_obs = self.joints_to_ee((action_like, robot_obs))
-                x, y, z = (
-                    float(ee_obs["ee.x"]),
-                    float(ee_obs["ee.y"]),
-                    float(ee_obs["ee.z"]),
-                )
-                wx, wy, wz = (
-                    float(ee_obs["ee.wx"]),
-                    float(ee_obs["ee.wy"]),
-                    float(ee_obs["ee.wz"]),
-                )
-            pos = np.array([x, y, z], dtype=np.float64)
-            rvec = np.array([wx, wy, wz], dtype=np.float64)
-            rot, _ = cv2.Rodrigues(rvec.reshape(3, 1))
-            normal = extract_forward_from_rotmat(rot, self.internal.ee_forward_axis)
-            return EEPoseState(pos=pos, rvec=rvec, rot=rot, normal=normal), ""
-        except Exception as e:
-            return None, f"{type(e).__name__}: {e}"
+        """Actual EE from joint FK (same path as IK hard validation)."""
+        if self.robot is None:
+            return None, "robot_not_connected"
+        if robot_obs is None:
+            robot_obs = self.robot.get_observation()
+        return self._ee_state_from_joint_fk(robot_obs)
 
     def send_ee_target(
         self,
@@ -566,7 +658,7 @@ class AdvancedScreenTargetModel:
         degraded, reason = False, ""
         desired_d = float(self.task_config.desired_eye_distance_m)
         eye, pan = eye_ik, self.pan_axis_ik
-        z_offset = float(self.internal.target_plane_below_eye_m)
+        z_offset = float(self.task_config.target_plane_below_eye_m)
         pan_vec_xy = np.array([pan[0] - eye[0], pan[1] - eye[1], 0.0], dtype=np.float64)
         pan_dist_xy = float(np.linalg.norm(pan_vec_xy))
         if pan_dist_xy < 1e-8:
@@ -596,7 +688,7 @@ class AdvancedScreenTargetModel:
         if np.linalg.norm(horiz_to_eye) < 1e-8:
             horiz_to_eye = -dir_to_pan
         h = normalize(horiz_to_eye)
-        tilt = math.radians(self.internal.screen_tilt_deg)
+        tilt = math.radians(self.task_config.screen_tilt_deg)
         n_up = normalize(math.cos(tilt) * h + math.sin(tilt) * z_world)
         n_down = normalize(math.cos(tilt) * h - math.sin(tilt) * z_world)
         if self.prev_normal is None:
@@ -622,7 +714,7 @@ class AdvancedScreenTargetModel:
                 abs(float(n_goal[2])), max(float(np.linalg.norm(n_goal[:2])), 1e-8)
             )
         )
-        tilt_err = abs(tilt_deg - self.internal.screen_tilt_deg)
+        tilt_err = abs(tilt_deg - self.task_config.screen_tilt_deg)
         if dist_err > self.internal.distance_tolerance_m:
             degraded, reason = True, reason or "distance_out_of_tolerance"
         if tilt_err > self.internal.tilt_tolerance_deg:
@@ -654,8 +746,19 @@ class FaceTrackNew:
         )
         self.internal_config.ik_pos_tol_m = float(task_config.ik_pos_tol_m)
         self.internal_config.ik_rot_tol_rad = float(task_config.ik_rot_tol_rad)
-        self.internal_config.urdf_path = body_config.urdf_path
 
+        self.internal_config.face_hold_enabled = task_config.face_hold_enabled
+        self.internal_config.face_hold_release_m = task_config.face_hold_release_m
+        self.internal_config.face_hold_candidate_m = task_config.face_hold_candidate_m
+        self.internal_config.face_hold_stable_s = task_config.face_hold_stable_s
+
+        self.internal_config.target_slew_enabled = task_config.target_slew_enabled
+        self.internal_config.target_pos_deadband_m = task_config.target_pos_deadband_m
+        self.internal_config.target_normal_deadband_deg = task_config.target_normal_deadband_deg
+        self.internal_config.target_max_pos_step_m = task_config.target_max_pos_step_m
+        self.internal_config.target_max_normal_step_deg = task_config.target_max_normal_step_deg
+
+        self.internal_config.urdf_path = body_config.urdf_path
         self.arm = SO101AdvancedController(
             body_config.port, body_config.id, self.internal_config
         )
@@ -676,18 +779,21 @@ class FaceTrackNew:
         self.last_actual_screen_normal_ik: Optional[np.ndarray] = None
         self.last_actual_error: str = ""
         self.last_ik_diag: dict[str, Any] = {"ik_status": "idle"}
-        self._outer_bias_pos = np.zeros(3, dtype=np.float64)
-        self._cmd_prev_pos: Optional[np.ndarray] = None
-        self._cmd_prev_rot: Optional[np.ndarray] = None
 
-    def _reset_control_helpers(self):
-        self._outer_bias_pos[:] = 0.0
-        self._cmd_prev_pos = None
-        self._cmd_prev_rot = None
+        self.last_slew_target: Optional[EEPoseTarget] = None
+        self.target_slew_status: str = "disabled"
+        self.target_slew_pos_delta_m: float = 0.0
+        self.target_slew_normal_delta_deg: float = 0.0
+
+        # Face stationary hold state.
+        self.face_hold_anchor_ik: Optional[np.ndarray] = None
+        self.face_hold_candidate_ik: Optional[np.ndarray] = None
+        self.face_hold_candidate_since: float = 0.0
+        self.face_hold_status: str = "disabled"
+        self.face_hold_dist_m: float = 0.0
 
     def connect(self):
         self.arm.connect()
-        self._reset_control_helpers()
         self.model = AdvancedScreenTargetModel(
             self.body_config, self.task_config, self.internal_config
         )
@@ -703,7 +809,266 @@ class FaceTrackNew:
 
     def restart_tracking(self):
         self.session.restart()
-        self._reset_control_helpers()
+
+        # Reset target slew state.
+        self.last_slew_target = None
+        self.target_slew_status = "reset"
+        self.target_slew_pos_delta_m = 0.0
+        self.target_slew_normal_delta_deg = 0.0
+
+        # Reset face stationary hold state.
+        self.face_hold_anchor_ik = None
+        self.face_hold_candidate_ik = None
+        self.face_hold_candidate_since = 0.0
+        self.face_hold_status = "reset"
+        self.face_hold_dist_m = 0.0
+
+        # Reset target-model normal smoothing / up-down branch memory.
+        if self.model is not None:
+            self.model.prev_normal = None
+
+        # Optional but cleaner: next frame can immediately send a control command.
+        self.last_control_time = 0.0
+
+        # Optional: clear displayed target until next valid face frame.
+        self.last_target = None
+
+    def _slerp_unit_vector(self, a: np.ndarray, b: np.ndarray, alpha: float) -> np.ndarray:
+        a = normalize(np.asarray(a, dtype=np.float64).reshape(3))
+        b = normalize(np.asarray(b, dtype=np.float64).reshape(3))
+        alpha = clamp(float(alpha), 0.0, 1.0)
+
+        dot = clamp(float(np.dot(a, b)), -1.0, 1.0)
+
+        if dot > 0.9995:
+            return normalize((1.0 - alpha) * a + alpha * b)
+
+        # Very unlikely for screen normals, but handle near-opposite safely.
+        if dot < -0.9995:
+            alt = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            if abs(float(np.dot(a, alt))) > 0.9:
+                alt = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+            ortho = normalize(alt - a * float(np.dot(a, alt)))
+            theta = math.pi * alpha
+            return normalize(math.cos(theta) * a + math.sin(theta) * ortho)
+
+        theta = math.acos(dot)
+        sin_theta = math.sin(theta)
+        return normalize(
+            math.sin((1.0 - alpha) * theta) / sin_theta * a
+            + math.sin(alpha * theta) / sin_theta * b
+        )
+
+    def _rot_from_normal_preserve_roll(
+        self,
+        normal: np.ndarray,
+        roll_ref_rot: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Use your keep-current-roll helper if present; otherwise fall back to
+        build_rotmat_with_forward_axis().
+        """
+        builder = globals().get("build_rotmat_with_forward_axis_keep_current_roll")
+        if callable(builder):
+            return builder(
+                normal,
+                self.internal_config.ee_forward_axis,
+                roll_ref_rot,
+            )
+        return build_rotmat_with_forward_axis(
+            normal,
+            self.internal_config.ee_forward_axis,
+        )
+
+    def _target_rotmat(self, target: EEPoseTarget) -> np.ndarray:
+        rvec = np.array([target.wx, target.wy, target.wz], dtype=np.float64).reshape(3, 1)
+        rot, _ = cv2.Rodrigues(rvec)
+        return rot
+
+    def _copy_target_with_pose(
+        self,
+        template: EEPoseTarget,
+        pos: np.ndarray,
+        normal: np.ndarray,
+        roll_ref_rot: np.ndarray,
+    ) -> EEPoseTarget:
+        normal = normalize(np.asarray(normal, dtype=np.float64).reshape(3))
+        rot = self._rot_from_normal_preserve_roll(normal, roll_ref_rot)
+        rvec, _ = cv2.Rodrigues(rot.astype(np.float64))
+        wx, wy, wz = map(float, rvec.reshape(3))
+
+        return EEPoseTarget(
+            pos=np.asarray(pos, dtype=np.float64).reshape(3).copy(),
+            normal=normal.copy(),
+            wx=wx,
+            wy=wy,
+            wz=wz,
+            distance_error_m=template.distance_error_m,
+            tilt_error_deg=template.tilt_error_deg,
+            degraded=template.degraded,
+            degraded_reason=template.degraded_reason,
+        )
+
+    def _slew_limit_target(
+        self,
+        raw_target: EEPoseTarget,
+        actual_state: Optional[EEPoseState],
+    ) -> EEPoseTarget:
+        """
+        Clamp EE target movement per control tick.
+
+        This is the new IK/EE equivalent of max_pan_step/max_lift_step:
+        - small target drift is ignored by deadband
+        - large target jumps are approached gradually
+        """
+        internal = self.internal_config
+
+        if not getattr(internal, "target_slew_enabled", False):
+            self.last_slew_target = raw_target
+            self.target_slew_status = "disabled"
+            self.target_slew_pos_delta_m = 0.0
+            self.target_slew_normal_delta_deg = 0.0
+            return raw_target
+
+        # Seed from current actual pose if available, otherwise from first raw target.
+        if self.last_slew_target is None:
+            if actual_state is not None:
+                seeded = self._copy_target_with_pose(
+                    raw_target,
+                    actual_state.pos,
+                    actual_state.normal,
+                    actual_state.rot,
+                )
+                self.last_slew_target = seeded
+                self.target_slew_status = "seed_actual"
+                return seeded
+
+            self.last_slew_target = raw_target
+            self.target_slew_status = "seed_raw"
+            return raw_target
+
+        prev = self.last_slew_target
+        prev_rot = self._target_rotmat(prev)
+
+        # Position slew.
+        raw_pos = np.asarray(raw_target.pos, dtype=np.float64).reshape(3)
+        prev_pos = np.asarray(prev.pos, dtype=np.float64).reshape(3)
+        pos_delta = raw_pos - prev_pos
+        pos_dist = float(np.linalg.norm(pos_delta))
+        self.target_slew_pos_delta_m = pos_dist
+
+        pos_deadband = max(0.0, float(internal.target_pos_deadband_m))
+        max_pos_step = max(1e-9, float(internal.target_max_pos_step_m))
+
+        if pos_dist <= pos_deadband:
+            new_pos = prev_pos.copy()
+            pos_status = "pos_hold"
+        elif pos_dist > max_pos_step:
+            new_pos = prev_pos + pos_delta / pos_dist * max_pos_step
+            pos_status = "pos_step"
+        else:
+            new_pos = raw_pos.copy()
+            pos_status = "pos_raw"
+
+        # Normal slew.
+        raw_n = normalize(np.asarray(raw_target.normal, dtype=np.float64).reshape(3))
+        prev_n = normalize(np.asarray(prev.normal, dtype=np.float64).reshape(3))
+        normal_delta_deg = normal_angle_deg(prev_n, raw_n)
+        self.target_slew_normal_delta_deg = normal_delta_deg
+
+        normal_deadband = max(0.0, float(internal.target_normal_deadband_deg))
+        max_normal_step_deg = max(1e-6, float(internal.target_max_normal_step_deg))
+
+        if normal_delta_deg <= normal_deadband:
+            new_n = prev_n.copy()
+            normal_status = "normal_hold"
+        elif normal_delta_deg > max_normal_step_deg:
+            alpha = max_normal_step_deg / normal_delta_deg
+            new_n = self._slerp_unit_vector(prev_n, raw_n, alpha)
+            normal_status = "normal_step"
+        else:
+            new_n = raw_n.copy()
+            normal_status = "normal_raw"
+
+        limited = self._copy_target_with_pose(
+            raw_target,
+            new_pos,
+            new_n,
+            prev_rot,
+        )
+
+        self.last_slew_target = limited
+        self.target_slew_status = f"{pos_status},{normal_status}"
+        return limited
+
+    def _stabilize_face_ik(self, measured_face_ik: np.ndarray, now: float) -> np.ndarray:
+        """
+        Optional face stationary hold.
+
+        Behavior:
+        - If measured face stays near the current anchor, return the anchor.
+        - If measured face jumps/drifts away, require it to remain stable around
+          a candidate for face_hold_stable_s before accepting a new anchor.
+        """
+        internal = self.internal_config
+        measured = np.asarray(measured_face_ik, dtype=np.float64).reshape(3)
+
+        if not getattr(internal, "face_hold_enabled", False):
+            self.face_hold_status = "disabled"
+            self.face_hold_dist_m = 0.0
+            return measured
+
+        release_m = max(0.0, float(internal.face_hold_release_m))
+        candidate_m = max(1e-6, float(internal.face_hold_candidate_m))
+        stable_s = max(0.0, float(internal.face_hold_stable_s))
+
+        if self.face_hold_anchor_ik is None:
+            self.face_hold_anchor_ik = measured.copy()
+            self.face_hold_candidate_ik = None
+            self.face_hold_candidate_since = 0.0
+            self.face_hold_status = "anchor_init"
+            self.face_hold_dist_m = 0.0
+            return self.face_hold_anchor_ik.copy()
+
+        anchor = self.face_hold_anchor_ik
+        dist_to_anchor = float(np.linalg.norm(measured - anchor))
+        self.face_hold_dist_m = dist_to_anchor
+
+        # Still close enough: treat as no real face movement.
+        if dist_to_anchor <= release_m:
+            self.face_hold_candidate_ik = None
+            self.face_hold_candidate_since = 0.0
+            self.face_hold_status = "hold"
+            return anchor.copy()
+
+        # Far from anchor: maybe real movement, maybe detector drift/outlier.
+        if self.face_hold_candidate_ik is None:
+            self.face_hold_candidate_ik = measured.copy()
+            self.face_hold_candidate_since = now
+            self.face_hold_status = "candidate_new"
+            return anchor.copy()
+
+        dist_to_candidate = float(np.linalg.norm(measured - self.face_hold_candidate_ik))
+
+        # Candidate itself is drifting too much; restart candidate timer.
+        if dist_to_candidate > candidate_m:
+            self.face_hold_candidate_ik = measured.copy()
+            self.face_hold_candidate_since = now
+            self.face_hold_status = "candidate_reset"
+            return anchor.copy()
+
+        # Candidate is stable; accept it as new anchor.
+        candidate_age = now - self.face_hold_candidate_since
+        if candidate_age >= stable_s:
+            self.face_hold_anchor_ik = measured.copy()
+            self.face_hold_candidate_ik = None
+            self.face_hold_candidate_since = 0.0
+            self.face_hold_status = "anchor_update"
+            self.face_hold_dist_m = 0.0
+            return self.face_hold_anchor_ik.copy()
+
+        self.face_hold_status = f"candidate_wait_{candidate_age:.2f}s"
+        return anchor.copy()
 
     def process_frame(
         self, frame_bgr, timestamp_ms: Optional[int] = None, execute: bool = True
@@ -750,8 +1115,6 @@ class FaceTrackNew:
 
         face = self.tracker.detect_largest_face(frame_bgr, timestamp_ms)
         if face is None:
-            if self.internal_config.outer_loop_reset_on_no_face:
-                self._reset_control_helpers()
             if now - self.session.last_face_time > self.task_config.lost_timeout:
                 if execute:
                     self.arm.go_home()
@@ -783,79 +1146,39 @@ class FaceTrackNew:
         face_cam = np.array(
             [self.face_x_s, self.face_y_s, self.face_z_s], dtype=np.float64
         )
-        face_ik = self.model.cam_to_ik_point(face_cam)
-        target = self.model.solve(face_ik)
-        self.last_target = target
+        # face_ik = self.model.cam_to_ik_point(face_cam)
+        # target = self.model.solve(face_ik)
+
+        face_ik_measured = self.model.cam_to_ik_point(face_cam)
+        face_ik = self._stabilize_face_ik(face_ik_measured, now)
+
+        raw_target = self.model.solve(face_ik)
+
+        # keep-current-roll
+        if actual_state is not None:
+            rot = build_rotmat_with_forward_axis_keep_current_roll(
+                raw_target.normal,
+                self.internal_config.ee_forward_axis,
+                actual_state.rot,
+            )
+            rvec, _ = cv2.Rodrigues(rot.astype(np.float64))
+            raw_target.wx, raw_target.wy, raw_target.wz = map(float, rvec.reshape(3))
+
+        target = raw_target
+        if (
+            getattr(self.internal_config, "target_slew_enabled", False)
+            and self.last_slew_target is not None
+        ):
+            # Between control ticks, display/hold the last commanded target.
+            target = self.last_slew_target
 
         if now - self.last_control_time >= 1.0 / self.task_config.control_hz:
-            ic = self.internal_config
-            if not ic.outer_loop_pos_enable:
-                self._outer_bias_pos[:] = 0.0
-            elif actual_state is not None:
-                dt = (
-                    (now - self.last_control_time)
-                    if self.last_control_time > 0
-                    else 1.0 / self.task_config.control_hz
-                )
-                e_pos = target.pos - actual_state.pos
-                self._outer_bias_pos += ic.outer_loop_ki_pos * e_pos * dt
-                bn = float(np.linalg.norm(self._outer_bias_pos))
-                if bn > ic.outer_loop_bias_max_m:
-                    self._outer_bias_pos *= ic.outer_loop_bias_max_m / max(bn, 1e-12)
-
-            pos_biased = target.pos + self._outer_bias_pos
-            vision_rot, _ = cv2.Rodrigues(
-                np.array([target.wx, target.wy, target.wz], dtype=np.float64).reshape(
-                    3, 1
-                )
-            )
-
-            prev_p = self._cmd_prev_pos
-            prev_r = self._cmd_prev_rot
-            if prev_p is None and actual_state is not None:
-                prev_p = actual_state.pos.copy()
-                prev_r = actual_state.rot.copy()
-            elif prev_p is None:
-                prev_p = pos_biased.copy()
-                prev_r = vision_rot.copy()
-
-            delta = pos_biased - prev_p
-            dist = float(np.linalg.norm(delta))
-            ms = ic.max_ee_step_m
-            if ms > 0.0 and dist > ms:
-                pos_cmd = prev_p + delta * (ms / dist)
-            else:
-                pos_cmd = pos_biased.copy()
-
-            oa = clamp(ic.ee_ori_slerp_alpha, 0.0, 1.0)
-            if oa >= 1.0 - 1e-9:
-                rot_cmd = vision_rot
-            else:
-                rot_cmd = slerp_rotmat(prev_r, vision_rot, oa)
-
-            rvec, _ = cv2.Rodrigues(rot_cmd)
-            wx_c, wy_c, wz_c = float(rvec[0, 0]), float(rvec[1, 0]), float(rvec[2, 0])
-            normal_cmd = extract_forward_from_rotmat(rot_cmd, ic.ee_forward_axis)
-
-            cmd_target = EEPoseTarget(
-                pos_cmd,
-                normal_cmd,
-                wx_c,
-                wy_c,
-                wz_c,
-                target.distance_error_m,
-                target.tilt_error_deg,
-                target.degraded,
-                target.degraded_reason,
-            )
+            target = self._slew_limit_target(raw_target, actual_state)
+            self.last_target = target
 
             ik_result = self.arm.send_ee_target(
-                cmd_target, robot_obs=robot_obs, execute=execute
+                target, robot_obs=robot_obs, execute=execute
             )
-            if ik_result.get("sent"):
-                self._cmd_prev_pos = pos_cmd.copy()
-                self._cmd_prev_rot = rot_cmd.copy()
-
             self.last_ik_diag = {
                 "ik_status": f"{ik_result.get('source', 'hold')}_{'ok' if ik_result.get('sent', False) else 'fail'}",
                 "ik_attempts": ik_result.get("ik_attempts", 0),
@@ -865,16 +1188,17 @@ class FaceTrackNew:
                 "ik_residual_rot": ik_result.get("ik_residual_rot"),
                 "ik_reason": ik_result.get("reason", ""),
                 "ik_mode": self.internal_config.ik_mode,
-                "outer_bias_norm_m": float(np.linalg.norm(self._outer_bias_pos)),
-                "ee_cmd_pos": pos_cmd.copy(),
             }
             self.last_control_time = now
+        else:
+            self.last_target = target
 
         result.update(
             {
                 "ok": True,
                 "has_face": True,
                 "face_xyz_ik": face_ik,
+                "face_xyz_ik_measured": face_ik_measured,
                 "screen_target_pos_ik": target.pos,
                 "screen_target_normal_ik": target.normal,
                 "overlay": {
@@ -885,6 +1209,8 @@ class FaceTrackNew:
                     "degraded": target.degraded,
                     "degraded_reason": target.degraded_reason,
                     "status": "FOLLOW",
+                    "face_hold_status": self.face_hold_status,
+                    "face_hold_dist_m": self.face_hold_dist_m,
                     "ik_status": self.last_ik_diag.get("ik_status", "idle"),
                     "ik_reason": self.last_ik_diag.get("ik_reason", ""),
                     "ik_attempts": self.last_ik_diag.get("ik_attempts", 0),
@@ -1007,6 +1333,29 @@ class FaceTrackNew:
                     (255, 200, 0),
                     2,
                 )
+            if tn is not None and an is not None:
+                dot = clamp(
+                    float(np.dot(normalize(tn), normalize(an))), -1.0, 1.0
+                )
+                normal_err_deg = math.degrees(math.acos(dot))
+                cv2.putText(
+                    display,
+                    f"screen_normal_err={normal_err_deg:.2f}deg",
+                    (20, 275),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.52,
+                    (0, 200, 255),
+                    2,
+                )
+            cv2.putText(
+                display,
+                f"face_hold={overlay.get('face_hold_status', '')} d={overlay.get('face_hold_dist_m', 0.0):.3f}m",
+                (20, 300),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.52,
+                (180, 180, 255),
+                2,
+            )
         else:
             cv2.putText(
                 display,
@@ -1024,7 +1373,6 @@ class FaceTrackNew:
     ) -> dict[str, Any] | None:
         def on_key(key: int) -> None:
             if key == ord("h"):
-                self._reset_control_helpers()
                 self.arm.go_home()
             elif key == ord("t"):
                 self.restart_tracking()

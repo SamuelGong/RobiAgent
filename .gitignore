@@ -182,3 +182,4 @@ dump.rdb
 nohup.out
 **/*.log
 third-party/
+*.bak
