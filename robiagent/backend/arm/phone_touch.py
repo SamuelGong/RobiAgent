@@ -23,9 +23,9 @@ class PhoneTouchInternalParams:
             'ee.x': 0.1579751324680724,
             'ee.y': 0.0,
             'ee.z': 0.1302531730019664641,
-            'ee.wx': 1.4786710303797914, 
-            'ee.wy': 1.2646752548204325, 
-            'ee.wz': 0.675355774095353, 
+            'ee.wx': 1.4786710303797914,
+            'ee.wy': 1.2646752548204325,
+            'ee.wz': 0.675355774095353,
             'ee.gripper_pos': 5.677154582763338
         }
 
@@ -40,10 +40,10 @@ class ScrollDirection:
 
 class RightSO101Controller:
     def __init__(
-        self, 
-        port: str, 
-        robot_id: str, 
-        task_config, 
+        self,
+        port: str,
+        robot_id: str,
+        task_config,
         internal: PhoneTouchInternalParams
     ):
         self.port = port
@@ -139,7 +139,7 @@ class RightSO101Controller:
 
     def get_observation(self) -> dict[str, Any]:
         return self.robot.get_observation()
-    
+
     def get_ik(self):
         obs = self.robot.get_observation()
         ee_pos = self.joints_to_ee(obs)
@@ -160,7 +160,7 @@ class RightSO101Controller:
                 self.move_arm(ee_act, 1)
         else:
             self.robot.send_action(dict(self.home))
-    
+
     def weighted_interpolation(self, point1, point2, num_steps):
         """
         生成带有缓入缓出效果的非线性插值点序列。
@@ -168,14 +168,14 @@ class RightSO101Controller:
         p1 = np.array(point1)
         p2 = np.array(point2)
         diff = p2 - p1
-        
+
         # 生成 0 到 1 之间的线性序列
         linear_t = np.linspace(0, 1, num_steps)
-        
+
         # 使用 sin 函数将线性序列映射为非线性权重，实现缓入缓出效果
         # 这个权重序列会先慢后快再慢
         weights = np.sin(linear_t * np.pi / 2) ** 2
-        
+
         # 使用非线性权重计算插值点
         return np.array([p1 + diff * w for w in weights])
 
@@ -201,7 +201,7 @@ class RightSO101Controller:
         # 向量化计算所有插值点：p1 + weights * diff
         # 使用 outer 或广播：weights 形状 (num_steps,)，diff 形状 (dim,)
         return p1 + np.outer(weights, diff)
-    
+
     def move_arm(self, ee_act, move_epoch: int):
         for i in range(move_epoch):
             t0 = time.perf_counter()
@@ -241,7 +241,7 @@ class RightSO101Controller:
         ###########################################################
         #  direction: up(上滑), down(下滑), right(右滑), left(左滑)  #
         ###########################################################
-        
+
         #往前启动一下，顶到手机
         self.ee_act['ee.x'] += 0.03
         # self.ee_act['ee.z'] += 0.03
@@ -266,14 +266,14 @@ class RightSO101Controller:
         move_range = self.direction_action_dict[direction].range
         obs = self.robot.get_observation()
         action = obs
-        
+
         for _ in range(self.scroll_epoch):
             t0 = time.perf_counter()
             action[motor] += (move_direction*move_range)
             self.robot.send_action(action)
             precise_sleep(max(1.0 / 45 - (time.perf_counter() - t0), 0.0))
-    
-    
+
+
     def tap_phone(self):
         for i in (1, -1):
             self.ee_act['ee.x'] += i * 0.03
@@ -305,10 +305,10 @@ class RightSO101Controller:
             self.touch_phone(phone_ik_temp,False)
             # time.sleep(0.5)
             # self.tap_phone()
-            
+
 class Camera:
     def __init__(
-        self, 
+        self,
         camera_config
     ):
         self.camera_config = camera_config
@@ -330,7 +330,7 @@ class Camera:
     def disconnect(self):
         self.camera.disconnect()
         self.camera = None
-    
+
     def capture(self, save_path = "./phone.jpg"):
         color_frame = self.camera.read()
         cv2.imwrite(save_path, color_frame)
@@ -339,9 +339,9 @@ class Camera:
 
 class PhoneDectector:
     def __init__(
-        self, 
-        task_config, 
-        camera_config, 
+        self,
+        task_config,
+        camera_config,
         internal_config: Optional[PhoneTouchInternalParams]
     ):
         from ultralytics import YOLO
@@ -386,7 +386,7 @@ class PhoneDectector:
             y_px = results[0].boxes.xyxy[0][3].item() - height_px_step
         elif loc == "right bottom":
             # 手机右下角像素坐标
-            x_px = results[0].boxes.xyxy[0][2].item() - width_px_step   
+            x_px = results[0].boxes.xyxy[0][2].item() - width_px_step
             y_px = results[0].boxes.xyxy[0][3].item() - height_px_step
 
         cv2.circle(rgb_frame, (int(x_px), int(y_px)), radius=5, color=(0, 255, 0), thickness=-1)
@@ -408,10 +408,10 @@ class PhoneDectector:
 
 class PhoneTouch:
     def __init__(
-        self, 
-        task_config, 
-        body_config, 
-        camera_config, 
+        self,
+        task_config,
+        body_config,
+        camera_config,
         internal_config: Optional[PhoneTouchInternalParams] = None
     ):
         self.task_config = task_config

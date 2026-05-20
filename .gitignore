@@ -181,5 +181,5 @@ proxy.sh
 dump.rdb
 nohup.out
 **/*.log
-third-party/
+thirdparty/
 *.bak
