@@ -85,42 +85,18 @@ def build_rotmat_with_forward_axis_keep_current_roll(
     return np.column_stack([x_axis, y_axis, z_axis])
 
 
-# def build_rotmat_with_forward_axis(
-#     forward_ik: np.ndarray, axis_label: str
-# ) -> np.ndarray:
-#     f = normalize(forward_ik)
-#     up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-#     if abs(float(np.dot(f, up))) > 0.98:
-#         up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-#     t = normalize(np.cross(up, f))
-#
-#     axis_idx, sign = parse_axis_label(axis_label)
-#     if axis_idx == 0:
-#         x_axis = sign * f
-#         y_axis = t
-#         z_axis = normalize(np.cross(x_axis, y_axis))
-#         return np.column_stack([x_axis, y_axis, z_axis])
-#     if axis_idx == 1:
-#         y_axis = sign * f
-#         z_axis = t
-#         x_axis = normalize(np.cross(y_axis, z_axis))
-#         return np.column_stack([x_axis, y_axis, z_axis])
-#     z_axis = sign * f
-#     x_axis = t
-#     y_axis = normalize(np.cross(z_axis, x_axis))
-#     return np.column_stack([x_axis, y_axis, z_axis])
-
-
 def build_rotmat_with_forward_axis(
     forward_ik: np.ndarray, axis_label: str
 ) -> np.ndarray:
     """
-    EXPERIMENT A:
-    Force the roll-completion reference vector to world +Y instead of world +Z.
+    Fallback full-rotation builder.
 
-    Purpose:
-    Test whether the old world-Z / near-vertical fallback branch is causing
-    a bad full-rotation IK target even though the desired normal is correct.
+    Normal control path should prefer build_rotmat_with_forward_axis_keep_current_roll()
+    because the task mainly cares about screen normal, not arbitrary roll.
+
+    This function is only used when no current EE rotation is available, or as a
+    generic fallback. It uses world +Y as the roll reference because this was
+    empirically more stable than world +Z for the screen-normal task.
     """
     f = normalize(forward_ik)
 
@@ -833,8 +809,29 @@ class FaceTrackNew:
 
     def restart_tracking(self):
         self.session.restart()
+
+        # Reset target slew state.
         self.last_slew_target = None
         self.target_slew_status = "reset"
+        self.target_slew_pos_delta_m = 0.0
+        self.target_slew_normal_delta_deg = 0.0
+
+        # Reset face stationary hold state.
+        self.face_hold_anchor_ik = None
+        self.face_hold_candidate_ik = None
+        self.face_hold_candidate_since = 0.0
+        self.face_hold_status = "reset"
+        self.face_hold_dist_m = 0.0
+
+        # Reset target-model normal smoothing / up-down branch memory.
+        if self.model is not None:
+            self.model.prev_normal = None
+
+        # Optional but cleaner: next frame can immediately send a control command.
+        self.last_control_time = 0.0
+
+        # Optional: clear displayed target until next valid face frame.
+        self.last_target = None
 
     def _slerp_unit_vector(self, a: np.ndarray, b: np.ndarray, alpha: float) -> np.ndarray:
         a = normalize(np.asarray(a, dtype=np.float64).reshape(3))
