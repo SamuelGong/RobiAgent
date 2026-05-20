@@ -70,16 +70,27 @@ task:
                 - 0.36
         model_path: "thirdparty/face_detector.task"
         control_hz: 50
-        alpha_xyz: 0.18
+        alpha_xyz: 1.0
         lost_timeout: 2.0
         min_detection_confidence: 0.6
         track_duration_s: 25
         hold_last_on_timeout: true
         desired_eye_distance_m: 0.35
+        target_plane_below_eye_m: 0.15
+        screen_tilt_deg: 30.0
         ik_mode: "hard_bisection"
         ik_bisection_max_depth: 5
         ik_pos_tol_m: 0.01
         ik_rot_tol_rad: 0.10
+        face_hold_enabled: true
+        face_hold_release_m: 0.025
+        face_hold_candidate_m: 0.015
+        face_hold_stable_s: 0.10
+        target_slew_enabled: true
+        target_pos_deadband_m: 0.004
+        target_normal_deadband_deg: 0.5
+        target_max_pos_step_m: 0.001
+        target_max_normal_step_deg: 1.0
     vocal_intro:
         text: "你好，很高兴向你介绍这款新产品！"
         chunk_size: 8
