@@ -27,14 +27,25 @@ class BasicPlanner():
                 #         'action': "Tracking face"
                 #     }
                 # },
+                # {
+                #     "name": "track_face_new",
+                #     "description": "Tracking face (new) using left arm",
+                #     "dependencies": [],
+                #     "skill": "single_arm",
+                #     "arguments": {
+                #         'body': 'left',
+                #         'action': "Tracking face (new)"
+                #     }
+                # },
                 {
-                    "name": "track_face_new",
-                    "description": "Tracking face (new) using left arm",
+                    "name": "touch_phone",
+                    "description": "scroll phone and touch phone",
                     "dependencies": [],
+                    # "dependencies": ["track_face_new"],
                     "skill": "single_arm",
                     "arguments": {
-                        'body': 'left',
-                        'action': "Tracking face (new)"
+                        'body': 'right',
+                        'action': "Touch phone"
                     }
                 },
                 # {

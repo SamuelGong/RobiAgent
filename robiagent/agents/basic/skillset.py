@@ -1,6 +1,7 @@
 from robiagent.backend.arm.face_track import FaceTrack
 from robiagent.backend.arm.face_track_new import FaceTrackNew
 from robiagent.backend.host.vocal_intro import VocalIntro
+from robiagent.backend.arm.phone_touch import PhoneTouch
 
 
 """
@@ -56,6 +57,18 @@ class BasicSkillset(object):
                 resp = "interrupted"
             finally:
                 arm.disconnect()
+        elif 'touch phone' in action.lower():
+            task_config = self.task_config.phone_touch
+            arm = PhoneTouch(task_config, body_config, camera_config)
+            arm.connect()
+            try:
+                arm.run_forever()
+                resp = "done"
+            except KeyboardInterrupt:
+                resp = "interrupted"
+            finally:
+                arm.disconnect()
+
         else:
             raise NotImplementedError
 
