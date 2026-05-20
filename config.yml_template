@@ -16,10 +16,23 @@ physical:
             width: 640
             height: 480
             fps: 60
+        right:
+            fx: 400.255
+            fy: 400.255
+            cx: 310.688
+            cy: 236.320
+            width: 640
+            height: 480
+            fps: 30
+            serial_number_or_name: "260322272909"
     arm:
         left:
             id: "my_awesome_follower_arm"
             port: "/dev/tty.usbmodem5B141134931"
+            urdf_path: "thirdparty/lerobot/so101/description/so101_new_calib.urdf"
+        right:
+            id: "so101_track_phone"
+            port: "/dev/tty.usbmodem5A7A0575391"
             urdf_path: "thirdparty/lerobot/so101/description/so101_new_calib.urdf"
 task:
     face_track:
@@ -71,3 +84,14 @@ task:
         text: "你好，很高兴向你介绍这款新产品！"
         chunk_size: 8
         chunk_delay: 0.1
+    phone_touch:
+        geometry:
+            camera_origin_in_ik_m:
+                - -0.07
+                - -0.01
+                - 0.29
+        model_path: "thirdparty/yolo/yolo26x.pt"
+        move_epoch: 10
+        interpolation_steps: 50
+        scroll_epoch: 30
+        use_weighted_interpolation: true
