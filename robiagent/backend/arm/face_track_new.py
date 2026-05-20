@@ -217,7 +217,7 @@ class NewInternalParams:
     screen_tilt_deg: float = 30.0
     tilt_tolerance_deg: float = 5.0
     ik_target_frame_name: str = "gripper_frame_link"
-    orientation_alpha: float = 0.3
+    orientation_alpha: float = 0.5
     cam_to_ik_rot: tuple[
         tuple[float, float, float],
         tuple[float, float, float],
