@@ -59,14 +59,15 @@ class BasicPlanner():
                     }
                 },
                 # {
-                #     "name": "usage_show",
-                #     "description": "Demonstrating a new feature using right arm",
-                #     "dependencies": ["track_face_new"],
+                #     "name": "touch_phone",
+                #     "description": "scroll phone and touch phone",
+                #     "dependencies": [],
                 #     "skill": "single_arm",
                 #     "arguments": {
                 #         'body': 'right',
-                #         'action': "Demonstrating a new feature"
+                #         'action': "Touch phone"
                 #     }
+                # },
                 # }
             ]
         else:

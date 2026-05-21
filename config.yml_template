@@ -9,8 +9,8 @@ agent:
 physical:
     camera:
         left:
-            fx: 400
-            fy: 400
+            fx: 500
+            fy: 500
             cx: 320
             cy: 240
             id: 0
@@ -49,24 +49,24 @@ task:
         alpha_xyz: 1.0
         lost_timeout: 2.0
         min_detection_confidence: 0.6
-        track_duration_s: 25
+        track_duration_s: 40
         hold_last_on_timeout: true
-        desired_eye_distance_m: 0.50
-        target_plane_below_eye_m: 0.20
+        desired_eye_distance_m: 0.70
+        target_plane_below_eye_m: 0.15
         screen_tilt_deg: 30.0
         ik_mode: "hard_bisection"
-        ik_bisection_max_depth: 6
+        ik_bisection_max_depth: 5
         ik_pos_tol_m: 0.01
         ik_rot_tol_rad: 0.05
         face_hold_enabled: true
-        face_hold_release_m: 0.025
-        face_hold_candidate_m: 0.020
-        face_hold_stable_s: 0.05
+        face_hold_release_m: 0.020
+        face_hold_candidate_m: 0.015
+        face_hold_stable_s: 0.02
         target_slew_enabled: true
-        target_pos_deadband_m: 0.004
-        target_normal_deadband_deg: 0.5
-        target_max_pos_step_m: 0.005
-        target_max_normal_step_deg: 1.0
+        target_pos_deadband_m: 0.001
+        target_normal_deadband_deg: 0.1
+        target_max_pos_step_m: 0.003
+        target_max_normal_step_deg: 0.3
     vocal_intro:
         text: "小米 17 Pro 是小米数字旗舰系列中一款定位高端、主打性能、影像与创新交互体验的手机。它延续了小米旗舰机一贯追求“全能水桶”的思路，同时又通过背部副屏设计做出了很强的辨识度：正面是一块 6.3 英寸高素质屏幕，机身尺寸相对克制，兼顾旗舰性能和单手握持；背部则加入一块约 2.6/2.7 英寸的动态背屏，不仅可以显示时间、通知、壁纸等信息，还能作为自拍取景器、音乐控制区和个性化互动窗口，让手机在外观和使用方式上都更有新鲜感。"
         chunk_size: 8
@@ -75,8 +75,8 @@ task:
         geometry:
             camera_origin_in_ik_m:
                 - -0.06
-                - -0.01
-                - 0.29
+                - -0.03
+                - 0.26
         model_path: "thirdparty/yolo/yolo26x.pt"
         move_epoch: 10
         interpolation_steps: 50
