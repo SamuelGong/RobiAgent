@@ -27,37 +27,37 @@ class BasicPlanner():
                 #         'action': "Tracking face"
                 #     }
                 # },
-                # {
-                #     "name": "track_face_new",
-                #     "description": "Tracking face (new) using left arm",
-                #     "dependencies": [],
-                #     "skill": "single_arm",
-                #     "arguments": {
-                #         'body': 'left',
-                #         'action': "Tracking face (new)"
-                #     }
-                # },
+                {
+                    "name": "track_face_new",
+                    "description": "Tracking face (new) using left arm",
+                    "dependencies": [],
+                    "skill": "single_arm",
+                    "arguments": {
+                        'body': 'left',
+                        'action': "Tracking face (new)"
+                    }
+                },
                 {
                     "name": "touch_phone",
                     "description": "scroll phone and touch phone",
-                    "dependencies": [],
-                    # "dependencies": ["track_face_new"],
+                    # "dependencies": [],
+                    "dependencies": ["track_face_new"],
                     "skill": "single_arm",
                     "arguments": {
                         'body': 'right',
                         'action': "Touch phone"
                     }
                 },
-                # {
-                #     "name": "vocal_intro",
-                #     "description": "Playing introduction using microphone",
-                #     # "dependencies": [],
-                #     "dependencies": ["track_face_new"],
-                #     "skill": "pc",
-                #     "arguments": {
-                #         'action': "Playing introduction"
-                #     }
-                # },
+                {
+                    "name": "vocal_intro",
+                    "description": "Playing introduction using microphone",
+                    # "dependencies": [],
+                    "dependencies": ["track_face_new"],
+                    "skill": "pc",
+                    "arguments": {
+                        'action': "Playing introduction"
+                    }
+                },
                 # {
                 #     "name": "usage_show",
                 #     "description": "Demonstrating a new feature using right arm",
