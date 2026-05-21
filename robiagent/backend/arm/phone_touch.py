@@ -297,7 +297,7 @@ class RightSO101Controller:
             print("direction can only support for: up, down, right, left! Please check the direction!")
             return
         phone_ik_temp = phone_ik - np.array([0.03, 0.0, 0.00])
-        for _ in range(3):
+        for _ in range(1):
             self.touch_phone(phone_ik)
             time.sleep(1)
             self.scroll_phone(direction)
@@ -323,7 +323,8 @@ class Camera:
             height=self.camera_config.height,
             color_mode=ColorMode.RGB,
             use_depth=True,
-            rotation=Cv2Rotation.NO_ROTATION
+            rotation=Cv2Rotation.NO_ROTATION,
+            warmup_s=self.camera_config.warmup_s
         )
         self.camera = RealSenseCamera(config)
         self.camera.connect()
@@ -333,9 +334,10 @@ class Camera:
     
     def capture(self, save_path = "./phone.jpg"):
         color_frame = self.camera.read()
-        cv2.imwrite(save_path, color_frame)
+        color_frame_BGR = cv2.cvtColor(color_frame, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(save_path, color_frame_BGR)
         depth_map = self.camera.read_depth()
-        return color_frame, depth_map
+        return color_frame_BGR, depth_map
 
 class PhoneDectector:
     def __init__(
@@ -361,8 +363,8 @@ class PhoneDectector:
         if results[0].boxes is None or len(results[0].boxes) == 0:
             status = "no phone detection"
             return status, None
-        annotate_frame = results[0].plot()
-        rgb_frame = cv2.cvtColor(annotate_frame, cv2.COLOR_RGB2BGR)
+        rgb_frame = results[0].plot()
+        # rgb_frame = cv2.cvtColor(annotate_frame, cv2.COLOR_RGB2BGR)
 
         # 手机中心点像素坐标
         x_px = results[0].boxes.xywh[0][0].item()

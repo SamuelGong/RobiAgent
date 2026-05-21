@@ -25,6 +25,7 @@ physical:
             height: 480
             fps: 30
             serial_number_or_name: "260322272909"
+            warmup_s: 3
     arm:
         left:
             id: "my_awesome_follower_arm"
