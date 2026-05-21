@@ -38,6 +38,16 @@ class BasicPlanner():
                     }
                 },
                 {
+                    "name": "vocal_intro",
+                    "description": "Playing introduction using microphone",
+                    # "dependencies": [],
+                    "dependencies": ["track_face_new"],
+                    "skill": "pc",
+                    "arguments": {
+                        'action': "Playing introduction"
+                    }
+                },
+                {
                     "name": "touch_phone",
                     "description": "scroll phone and touch phone",
                     # "dependencies": [],
@@ -46,16 +56,6 @@ class BasicPlanner():
                     "arguments": {
                         'body': 'right',
                         'action': "Touch phone"
-                    }
-                },
-                {
-                    "name": "vocal_intro",
-                    "description": "Playing introduction using microphone",
-                    # "dependencies": [],
-                    "dependencies": ["track_face_new"],
-                    "skill": "pc",
-                    "arguments": {
-                        'action': "Playing introduction"
                     }
                 },
                 # {

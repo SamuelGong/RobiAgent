@@ -297,7 +297,7 @@ class RightSO101Controller:
             print("direction can only support for: up, down, right, left! Please check the direction!")
             return
         phone_ik_temp = phone_ik - np.array([0.03, 0.0, 0.00])
-        for _ in range(1):
+        for _ in range(3):
             self.touch_phone(phone_ik)
             time.sleep(1)
             self.scroll_phone(direction)
@@ -354,7 +354,7 @@ class PhoneDectector:
         self.t_ik_cam = np.array(task_config.geometry.camera_origin_in_ik_m, dtype=np.float64)
 
     def detect(self, source="./phone.jpg"):
-        results = self.model.predict(source=source, conf=0.25, classes=67, save=False)
+        results = self.model.predict(source=source, conf=0.1, classes=67, save=False)
         return results
 
     def get_phone_axis(self, depth_map, source="./phone.jpg", loc: str = "center"):
