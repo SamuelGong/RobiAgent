@@ -24,7 +24,7 @@ class PhoneTouchInternalParams:
             'ee.y': 0.0,
             'ee.z': 0.1302531730019664641,
             'ee.wx': 1.4786710303797914,
-            'ee.wy': 1.2646752548204325,
+            'ee.wy': 1.5046752548204325,
             'ee.wz': 0.675355774095353,
             'ee.gripper_pos': 5.677154582763338
         }
@@ -37,6 +37,7 @@ class ScrollDirection:
     motors: str
     move: int = -1
     range: float = 1.0
+
 
 class RightSO101Controller:
     def __init__(
@@ -149,17 +150,93 @@ class RightSO101Controller:
         if self.use_weighted_interpolation:
             ik_origin = self.get_ik()
             home_ik = self.home_ik
-            origin_loc = np.array([ik_origin['ee.x'], ik_origin['ee.y'], ik_origin['ee.z']])
-            home_loc = np.array([home_ik['ee.x'], home_ik['ee.y'], home_ik['ee.z']])
-            ik_list = self.weighted_interpolation(origin_loc, home_loc, self.num_steps)
-            ee_act = ik_origin
-            for ik in ik_list:
-                ee_act['ee.x'] = ik[0]
-                ee_act['ee.y'] = ik[1]
-                ee_act['ee.z'] = ik[2]
-                self.move_arm(ee_act, 1)
+            only_ik_interpolation = False
+            if only_ik_interpolation:
+                origin_loc = np.array([ik_origin['ee.x'], ik_origin['ee.y'], ik_origin['ee.z']])
+                home_loc = np.array([home_ik['ee.x'], home_ik['ee.y'], home_ik['ee.z']])
+                ik_list = self.weighted_interpolation(origin_loc, home_loc, self.num_steps)
+                ee_act = ik_origin
+                for ik in ik_list:
+                    ee_act['ee.x'] = ik[0]
+                    ee_act['ee.y'] = ik[1]
+                    ee_act['ee.z'] = ik[2]
+                    self.move_arm(ee_act, 1)
+            else:
+                ik_list = self.interpolate_pose(ik_origin, home_ik, self.num_steps)
+                for ik_act in ik_list:
+                    self.move_arm(ik_act, 1)
         else:
             self.robot.send_action(dict(self.home))
+
+    def slerp_quat(self, q_start, q_end, t):
+
+        """四元数球面线性插值"""
+        # 确保取最短路径
+        dot = np.dot(q_start, q_end)
+        if dot < 0.0:
+            q_end = -q_end
+            dot = -dot
+        
+        # 防止除零
+        if dot > 0.9995:
+            result = q_start + t * (q_end - q_start)
+            return result / np.linalg.norm(result)
+        
+        theta_0 = np.arccos(dot)  # 两四元数夹角
+        theta = theta_0 * t
+        sin_theta = np.sin(theta)
+        sin_theta_0 = np.sin(theta_0)
+        
+        s1 = np.sin(theta_0 - theta) / sin_theta_0
+        s2 = sin_theta / sin_theta_0
+        return s1 * q_start + s2 * q_end 
+    
+    def interpolate_pose(self, start_pose, end_pose, num_steps):
+        """
+        start_pose: dict with keys 'ee.x', 'ee.y', 'ee.z', 'ee.wx', 'ee.wy', 'ee.wz'
+        end_pose: same format
+        num_steps: 插值步数
+        """
+        # lazy import
+        from lerobot.utils.rotation import Rotation
+
+        # 提取位置和姿态
+        start_pos = np.array([start_pose['ee.x'], start_pose['ee.y'], start_pose['ee.z']])
+        end_pos = np.array([end_pose['ee.x'], end_pose['ee.y'], end_pose['ee.z']])
+        
+        start_aa = np.array([start_pose['ee.wx'], start_pose['ee.wy'], start_pose['ee.wz']])
+        end_aa = np.array([end_pose['ee.wx'], end_pose['ee.wy'], end_pose['ee.wz']])
+        
+        # 姿态转四元数
+        q_start = Rotation.from_rotvec(start_aa).as_quat()
+        q_end = Rotation.from_rotvec(end_aa).as_quat()
+        
+        trajectory = []
+        # 生成 0 到 1 之间的线性序列
+        linear_t = np.linspace(0, 1, num_steps)
+
+        # 使用 sin 函数将线性序列映射为非线性权重，实现缓入缓出效果
+        # 这个权重序列会先慢后快再慢
+        weights = np.sin(linear_t * np.pi / 2) ** 2
+        for t in weights:        
+            # 位置 LERP
+            pos = (1 - t) * start_pos + t * end_pos
+            
+            # 姿态 SLERP
+            q = self.slerp_quat(q_start, q_end, t)
+            aa = Rotation.from_quat(q).as_rotvec()
+            
+            trajectory.append({
+                'ee.x': pos[0],
+                'ee.y': pos[1],
+                'ee.z': pos[2],
+                'ee.wx': aa[0],
+                'ee.wy': aa[1],
+                'ee.wz': aa[2],
+                'ee.gripper_pos': start_pose['ee.gripper_pos']
+            })
+        
+        return trajectory
 
     def weighted_interpolation(self, point1, point2, num_steps):
         """
@@ -214,21 +291,26 @@ class RightSO101Controller:
         self.ee_act['ee.x'] = phone_ik[0] - 0.03
         self.ee_act['ee.y'] = phone_ik[1]
         self.ee_act['ee.z'] = phone_ik[2]
-
+        only_ik_interpolation = False
         if self.use_weighted_interpolation:
             robot_obs = self.robot.get_observation()
             ee_obs = self.joints_to_ee(robot_obs)
-            origin_loc = np.array([ee_obs['ee.x'], ee_obs['ee.y'], ee_obs['ee.z']])
-            target_loc = np.array([self.ee_act['ee.x'], self.ee_act['ee.y'], self.ee_act['ee.z']])
-            ee_list = self.weighted_interpolation(origin_loc, target_loc, self.num_steps)
-            ee_act = self.ee_act
-            if not touch:
-                ee_act = ee_obs
-            for ee in ee_list:
-                ee_act['ee.x'] = ee[0]
-                ee_act['ee.y'] = ee[1]
-                ee_act['ee.z'] = ee[2]
-                self.move_arm(ee_act, 1)
+            # ee_list = self.interpolate_pose(ee_obs, self.ee_act, self.num_steps)
+            # print(ee_list)
+            if only_ik_interpolation:
+                origin_loc = np.array([ee_obs['ee.x'], ee_obs['ee.y'], ee_obs['ee.z']])
+                target_loc = np.array([self.ee_act['ee.x'], self.ee_act['ee.y'], self.ee_act['ee.z']])
+                ee_list = self.weighted_interpolation(origin_loc, target_loc, self.num_steps)
+                ee_act = self.ee_act
+                for ee in ee_list:
+                    ee_act['ee.x'] = ee[0]
+                    ee_act['ee.y'] = ee[1]
+                    ee_act['ee.z'] = ee[2]
+                    self.move_arm(ee_act, 1)
+            else:
+                ee_list = self.interpolate_pose(ee_obs, self.ee_act, self.num_steps)
+                for ee_act in ee_list:
+                    self.move_arm(ee_act, 1)
         else:
             self.move_arm(self.ee_act, self.move_epoch)
 
@@ -248,15 +330,21 @@ class RightSO101Controller:
         if self.use_weighted_interpolation:
             robot_obs = self.robot.get_observation()
             ee_obs = self.joints_to_ee(robot_obs)
-            origin_loc = np.array([ee_obs['ee.x'], ee_obs['ee.y'], ee_obs['ee.z']])
-            target_loc = np.array([self.ee_act['ee.x'], self.ee_act['ee.y'], self.ee_act['ee.z']])
-            ee_act_list = self.weighted_interpolation(origin_loc, target_loc, 10)
-            ee_act = self.ee_act
-            for ee_act_array in ee_act_list:
-                ee_act['ee.x'] = ee_act_array[0]
-                ee_act['ee.y'] = ee_act_array[1]
-                ee_act['ee.z'] = ee_act_array[2]
-                self.move_arm(ee_act,1)
+            only_ik_interpolation = False
+            if only_ik_interpolation:
+                origin_loc = np.array([ee_obs['ee.x'], ee_obs['ee.y'], ee_obs['ee.z']])
+                target_loc = np.array([self.ee_act['ee.x'], self.ee_act['ee.y'], self.ee_act['ee.z']])
+                ee_act_list = self.weighted_interpolation(origin_loc, target_loc, 10)
+                ee_act = self.ee_act
+                for ee_act_array in ee_act_list:
+                    ee_act['ee.x'] = ee_act_array[0]
+                    ee_act['ee.y'] = ee_act_array[1]
+                    ee_act['ee.z'] = ee_act_array[2]
+                    self.move_arm(ee_act,1)
+            else:
+                ee_list = self.interpolate_pose(ee_obs, self.ee_act, self.num_steps)
+                for ee_act in ee_list:
+                    self.move_arm(ee_act, 1)
         else:
             self.move_arm(self.ee_act, self.move_epoch)
         time.sleep(0.5)
@@ -297,13 +385,13 @@ class RightSO101Controller:
             print("direction can only support for: up, down, right, left! Please check the direction!")
             return
         phone_ik_temp = phone_ik - np.array([0.03, 0.0, 0.00])
-        for _ in range(3):
+        for _ in range(1):
             self.touch_phone(phone_ik)
             time.sleep(1)
             self.scroll_phone(direction)
             time.sleep(0.5)
             self.touch_phone(phone_ik_temp,False)
-            # time.sleep(0.5)
+            time.sleep(0.5)
             # self.tap_phone()
 
 class Camera:
@@ -397,9 +485,15 @@ class PhoneDectector:
         cv2.destroyAllWindows()
         print(f"像素坐标是: ({x_px} , {y_px})")
         phone_z_m = depth_map[int(y_px), int(x_px)] / 10000
-        if(phone_z_m < 0.01):
+
+        if phone_z_m < 0.01:
             status = "no depth information"
             return status, None
+        
+        if phone_z_m > 0.4:
+            status = "wrong depth information, phone is too far away"
+            return status, None
+
         phone_x_m = (x_px - self.camera_config.cx) * phone_z_m / self.camera_config.fx
         phone_y_m = (y_px - self.camera_config.cy) * phone_z_m / self.camera_config.fy
         print(phone_x_m, phone_y_m, phone_z_m)
