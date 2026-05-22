@@ -61,6 +61,7 @@ class RightSO101Controller:
         self.scroll_epoch = task_config.scroll_epoch
         self.ee_act = internal.ee_target_pos
         self.use_weighted_interpolation = task_config.use_weighted_interpolation
+        self.touch_step = task_config.touch_step
         self.direction_action_dict = {
             "up" : ScrollDirection(motors="elbow_flex.pos", move=-1, range=1),
             "down" : ScrollDirection(motors="elbow_flex.pos", move=1, range=1),
@@ -385,7 +386,7 @@ class RightSO101Controller:
             print("direction can only support for: up, down, right, left! Please check the direction!")
             return
         phone_ik_temp = phone_ik - np.array([0.03, 0.0, 0.00])
-        for _ in range(1):
+        for _ in range(self.touch_step):
             self.touch_phone(phone_ik)
             time.sleep(1)
             self.scroll_phone(direction)
