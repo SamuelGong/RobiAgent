@@ -1,9 +1,7 @@
-from numbers import Real
 from typing import Optional, Any
 from dataclasses import dataclass
 import numpy as np
 import time
-from inputimeout import inputimeout, TimeoutOccurred
 from lerobot.utils.robot_utils import precise_sleep
 import cv2
 
@@ -417,6 +415,7 @@ class Camera:
         )
         self.camera = RealSenseCamera(config)
         self.camera.connect()
+
     def disconnect(self):
         self.camera.disconnect()
         self.camera = None
@@ -488,12 +487,17 @@ class PhoneDectector:
         phone_z_m = depth_map[int(y_px), int(x_px)] / 10000
 
         if phone_z_m < 0.01:
+            # TODO: fix this
             status = "no depth information"
-            return status, None
+            print(status)
+            phone_z_m = 0.3898
+            # return status, None
         
         if phone_z_m > 0.4:
             status = "wrong depth information, phone is too far away"
-            return status, None
+            print(status)
+            phone_z_m = 0.3898
+            # return status, None
 
         phone_x_m = (x_px - self.camera_config.cx) * phone_z_m / self.camera_config.fx
         phone_y_m = (y_px - self.camera_config.cy) * phone_z_m / self.camera_config.fy
@@ -524,10 +528,12 @@ class PhoneTouch:
     def connect(self):
         self.arm.connect()
         self.camera.connect()
+
     def disconnect(self):
         self.arm.disconnect()
         self.camera.disconnect()
-    def run_forever(self):
+
+    def run_forever(self, return_on_finish=True):
         try:
             color_frame, depth_map = self.camera.capture()
             status,phone_axis = self.phone_detector.get_phone_axis(depth_map, color_frame, "center")

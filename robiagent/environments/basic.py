@@ -38,9 +38,9 @@ class BasicEnv(BaseEnv, RedisIPC):
             value=message
         )
 
-    def set_data_for_subprocess(self, data, target_pid):
+    def set_data_for_other_process(self, channel, data):
         self.set_a_shared_value(
-            key=[f"{target_pid}", "data_from_main_process"],
+            key=channel,
             value=data
         )
 

@@ -3,7 +3,7 @@ environment:
 agent:
     type: basic
     max_num_tasks_launched: 8
-    max_workers: 4
+    max_workers: 8
     task_waiting_time_in_sec: 0.1
     task_retry_time_limit: 0
 physical:
@@ -37,44 +37,43 @@ physical:
             port: "/dev/tty.usbmodem5A7A0575391"
             urdf_path: "thirdparty/lerobot/so101/description/so101_new_calib.urdf"
 task:
-    face_track_new:
+    vocal_intro:
+        chunk_size: 8
+        chunk_delay: 0.1
+    track_face_new:
         geometry:
             face_width_m: 0.20
             camera_origin_in_ik_m:
                 - 0.06
-                - 0.16
+                - 0.15
                 - 0.33
         model_path: "thirdparty/face_detector.task"
         control_hz: 50
         alpha_xyz: 1.0
         lost_timeout: 2.0
         min_detection_confidence: 0.6
-        track_duration_s: 40
+        track_duration_s: 22
         hold_last_on_timeout: true
-        desired_eye_distance_m: 0.70
-        target_plane_below_eye_m: 0.15
-        screen_tilt_deg: 30.0
+        desired_eye_distance_m: 0.65
+        target_plane_below_eye_m: 0.10
+        screen_tilt_deg: 10.0
         ik_mode: "hard_bisection"
         ik_bisection_max_depth: 5
-        ik_pos_tol_m: 0.01
-        ik_rot_tol_rad: 0.05
+        ik_pos_tol_m: 0.02
+        ik_rot_tol_rad: 0.02
         face_hold_enabled: true
-        face_hold_release_m: 0.020
-        face_hold_candidate_m: 0.015
-        face_hold_stable_s: 0.02
+        face_hold_release_m: 0.025
+        face_hold_candidate_m: 0.020
+        face_hold_stable_s: 0.01
         target_slew_enabled: true
         target_pos_deadband_m: 0.001
         target_normal_deadband_deg: 0.1
-        target_max_pos_step_m: 0.003
-        target_max_normal_step_deg: 0.3
-    vocal_intro:
-        text: "小米 17 Pro 是小米数字旗舰系列中一款定位高端、主打性能、影像与创新交互体验的手机。它延续了小米旗舰机一贯追求“全能水桶”的思路，同时又通过背部副屏设计做出了很强的辨识度：正面是一块 6.3 英寸高素质屏幕，机身尺寸相对克制，兼顾旗舰性能和单手握持；背部则加入一块约 2.6/2.7 英寸的动态背屏，不仅可以显示时间、通知、壁纸等信息，还能作为自拍取景器、音乐控制区和个性化互动窗口，让手机在外观和使用方式上都更有新鲜感。"
-        chunk_size: 8
-        chunk_delay: 0.1
-    phone_touch:
+        target_max_pos_step_m: 0.005
+        target_max_normal_step_deg: 0.5
+    touch_phone:
         geometry:
             camera_origin_in_ik_m:
-                - -0.065
+                - -0.062
                 - -0.03
                 - 0.26
         model_path: "thirdparty/yolo/yolo26x.pt"
@@ -83,3 +82,14 @@ task:
         scroll_epoch: 30
         use_weighted_interpolation: true
         touch_step: 1
+    simple_movement:
+        target_pose:
+            - 32.395604
+            - -106.065934
+            - 76.395604
+            - 16.263736
+            - 1.362637
+            - 45.167785
+        move_steps: 50
+        step_sleep_s: 0.02
+        hold_s: 3
