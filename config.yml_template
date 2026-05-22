@@ -74,7 +74,7 @@ task:
     phone_touch:
         geometry:
             camera_origin_in_ik_m:
-                - -0.06
+                - -0.065
                 - -0.03
                 - 0.26
         model_path: "thirdparty/yolo/yolo26x.pt"
@@ -82,3 +82,4 @@ task:
         interpolation_steps: 50
         scroll_epoch: 30
         use_weighted_interpolation: true
+        touch_step: 1
