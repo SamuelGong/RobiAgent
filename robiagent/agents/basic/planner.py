@@ -17,47 +17,47 @@ class BasicPlanner():
     def predefined_decomposition(self, task):
         if task in ["demo"]:
             task_list = [
-                # {
-                #     "name": "track_face",
-                #     "description": "Tracking face using left arm",
-                #     "dependencies": [],
-                #     "skill": "single_arm",
-                #     "arguments": {
-                #         'body': 'left',
-                #         'action': "Tracking face"
-                #     }
-                # },
                 {
-                    "name": "track_face_new",
-                    "description": "Tracking face (new) using left arm",
+                    "name": "simple_movement",
+                    "description": "Let left arm be somewhere specified",
                     "dependencies": [],
                     "skill": "single_arm",
                     "arguments": {
                         'body': 'left',
-                        'action': "Tracking face (new)"
+                        'action': "Move to somewhere"
                     }
                 },
-                {
-                    "name": "vocal_intro",
-                    "description": "Playing introduction using microphone",
-                    # "dependencies": [],
-                    "dependencies": ["track_face_new"],
-                    "skill": "pc",
-                    "arguments": {
-                        'action': "Playing introduction"
-                    }
-                },
-                {
-                    "name": "touch_phone",
-                    "description": "scroll phone and touch phone",
-                    # "dependencies": [],
-                    "dependencies": ["track_face_new"],
-                    "skill": "single_arm",
-                    "arguments": {
-                        'body': 'right',
-                        'action': "Touch phone"
-                    }
-                },
+                # {
+                #     "name": "track_face_new",
+                #     "description": "Tracking face (new) using left arm",
+                #     "dependencies": [],
+                #     "skill": "single_arm",
+                #     "arguments": {
+                #         'body': 'left',
+                #         'action': "Tracking face (new)"
+                #     }
+                # },
+                # {
+                #     "name": "vocal_intro",
+                #     "description": "Playing introduction using microphone",
+                #     # "dependencies": [],
+                #     "dependencies": ["track_face_new"],
+                #     "skill": "pc",
+                #     "arguments": {
+                #         'action': "Playing introduction"
+                #     }
+                # },
+                # {
+                #     "name": "touch_phone",
+                #     "description": "scroll phone and touch phone",
+                #     # "dependencies": [],
+                #     "dependencies": ["track_face_new"],
+                #     "skill": "single_arm",
+                #     "arguments": {
+                #         'body': 'right',
+                #         'action': "Touch phone"
+                #     }
+                # },
                 # {
                 #     "name": "touch_phone",
                 #     "description": "scroll phone and touch phone",

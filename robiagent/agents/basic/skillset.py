@@ -2,6 +2,7 @@ from robiagent.backend.arm.face_track import FaceTrack
 from robiagent.backend.arm.face_track_new import FaceTrackNew
 from robiagent.backend.host.vocal_intro import VocalIntro
 from robiagent.backend.arm.phone_touch import PhoneTouch
+from robiagent.backend.arm.simple_movement import SimpleMove
 
 
 """
@@ -63,6 +64,22 @@ class BasicSkillset(object):
             arm.connect()
             try:
                 arm.run_forever()
+                resp = "done"
+            except KeyboardInterrupt:
+                resp = "interrupted"
+            finally:
+                arm.disconnect()
+        elif 'move to' in action.lower():
+            task_config = self.task_config.simple_movement
+
+            arm = SimpleMove(
+                task_config=task_config,
+                body_config=body_config
+            )
+            arm.connect()
+
+            try:
+                arm.run_forever(return_on_finish=True)
                 resp = "done"
             except KeyboardInterrupt:
                 resp = "interrupted"
