@@ -217,7 +217,7 @@ class NewInternalParams:
     screen_tilt_deg: float = 30.0
     tilt_tolerance_deg: float = 5.0
     ik_target_frame_name: str = "gripper_frame_link"
-    orientation_alpha: float = 1.0
+    # orientation_alpha: float = 1.0
     cam_to_ik_rot: tuple[
         tuple[float, float, float],
         tuple[float, float, float],
@@ -740,10 +740,10 @@ class AdvancedScreenTargetModel:
         to_eye = normalize(eye - target_pos)
         if float(np.dot(n_goal, to_eye)) < 0:
             n_goal = -n_goal
-        if self.prev_normal is not None:
-            alpha = clamp(self.internal.orientation_alpha, 0.0, 1.0)
-            n_goal = normalize((1.0 - alpha) * self.prev_normal + alpha * n_goal)
-        self.prev_normal = n_goal
+        # if self.prev_normal is not None:
+        #     alpha = clamp(self.internal.orientation_alpha, 0.0, 1.0)
+        #     n_goal = normalize((1.0 - alpha) * self.prev_normal + alpha * n_goal)
+        # self.prev_normal = n_goal
 
         dist_err = abs(float(np.linalg.norm(eye - target_pos)) - desired_d)
         tilt_deg = math.degrees(
@@ -1171,18 +1171,19 @@ class FaceTrackNew:
             v,
             face["width_px"],
         )
-        self.face_x_s = ema(
-            self.face_x_s, float(face_xyz[0]), self.task_config.alpha_xyz
-        )
-        self.face_y_s = ema(
-            self.face_y_s, float(face_xyz[1]), self.task_config.alpha_xyz
-        )
-        self.face_z_s = ema(
-            self.face_z_s, float(face_xyz[2]), self.task_config.alpha_xyz
-        )
-        face_cam = np.array(
-            [self.face_x_s, self.face_y_s, self.face_z_s], dtype=np.float64
-        )
+        # self.face_x_s = ema(
+        #     self.face_x_s, float(face_xyz[0]), self.task_config.alpha_xyz
+        # )
+        # self.face_y_s = ema(
+        #     self.face_y_s, float(face_xyz[1]), self.task_config.alpha_xyz
+        # )
+        # self.face_z_s = ema(
+        #     self.face_z_s, float(face_xyz[2]), self.task_config.alpha_xyz
+        # )
+        # face_cam = np.array(
+        #     [self.face_x_s, self.face_y_s, self.face_z_s], dtype=np.float64
+        # )
+        face_cam = face_xyz
         # face_ik = self.model.cam_to_ik_point(face_cam)
         # target = self.model.solve(face_ik)
 
@@ -1216,12 +1217,12 @@ class FaceTrackNew:
             ik_result = self.arm.send_ee_target(
                 target, robot_obs=robot_obs, execute=execute
             )
-            # only for DEBUG
-            if (
-                ik_result.get("source") == "hold"
-                and not ik_result.get("sent", False)
-            ):
-                print("[IK HOLD_FAIL]", ik_result)
+            # # only for DEBUG
+            # if (
+            #     ik_result.get("source") == "hold"
+            #     and not ik_result.get("sent", False)
+            # ):
+            #     print("[IK HOLD_FAIL]", ik_result)
             self.last_ik_diag = {
                 "ik_status": f"{ik_result.get('source', 'hold')}_{'ok' if ik_result.get('sent', False) else 'fail'}",
                 "ik_attempts": ik_result.get("ik_attempts", 0),

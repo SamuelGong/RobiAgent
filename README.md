@@ -44,6 +44,14 @@ lerobot-find-port
 lerobot-calibrate --robot.type=so101_follower --robot.port=<你确认的端口> --robot.id=<你指定的 ID>
 ```
 
+再通过以下命令找到 RGB 相机（深度相机不用）的 UID（如果需要）：
+
+```bash
+swift utils/list_cams.swift
+```
+
+记住UID。
+
 # 2. 演示示例
 
 如果是第一次运行，需要先创建必要的配置文件`config.yml`和`.env`：

@@ -2,7 +2,7 @@ environment:
     type: basic
 agent:
     type: basic
-    max_num_tasks_launched: 8
+    max_num_tasks_launched: 20
     max_workers: 8
     task_waiting_time_in_sec: 0.1
     task_retry_time_limit: 0
@@ -13,7 +13,7 @@ physical:
             fy: 500
             cx: 320
             cy: 240
-            id: 0
+            uid: 0x2400000bda5883
             width: 640
             height: 480
             fps: 60
@@ -46,30 +46,29 @@ task:
             camera_origin_in_ik_m:
                 - 0.06
                 - 0.15
-                - 0.33
+                - 0.31
         model_path: "thirdparty/face_detector.task"
         control_hz: 50
-        alpha_xyz: 1.0
         lost_timeout: 2.0
         min_detection_confidence: 0.6
-        track_duration_s: 22
+        track_duration_s: 422
         hold_last_on_timeout: true
         desired_eye_distance_m: 0.65
-        target_plane_below_eye_m: 0.10
-        screen_tilt_deg: 10.0
+        target_plane_below_eye_m: 0.20
+        screen_tilt_deg: 30.0
         ik_mode: "hard_bisection"
-        ik_bisection_max_depth: 5
-        ik_pos_tol_m: 0.02
-        ik_rot_tol_rad: 0.02
+        ik_bisection_max_depth: 6
+        ik_pos_tol_m: 0.1
+        ik_rot_tol_rad: 0.05
         face_hold_enabled: true
         face_hold_release_m: 0.025
         face_hold_candidate_m: 0.020
-        face_hold_stable_s: 0.01
+        face_hold_stable_s: 0.1
         target_slew_enabled: true
         target_pos_deadband_m: 0.001
         target_normal_deadband_deg: 0.1
-        target_max_pos_step_m: 0.005
-        target_max_normal_step_deg: 0.5
+        target_max_pos_step_m: 0.003
+        target_max_normal_step_deg: 0.3
     touch_phone:
         geometry:
             camera_origin_in_ik_m:
@@ -84,12 +83,12 @@ task:
         touch_step: 1
     simple_movement:
         target_pose:
-            - 32.395604
-            - -106.065934
-            - 76.395604
-            - 16.263736
-            - 1.362637
-            - 45.167785
+            - 43.120879
+            - -110.813187
+            - 72.703297
+            - 43.868132
+            - -1.538462
+            - 44.899329
         move_steps: 50
         step_sleep_s: 0.02
         hold_s: 3
