@@ -6,6 +6,7 @@ shell = Shell()
 shell.execute_code(command)
 """
 import logging
+import os
 
 from robiagent.backend.arm.face_track import FaceTrack
 from robiagent.backend.arm.face_track_new import FaceTrackNew
@@ -84,7 +85,9 @@ class BasicSkillset(object):
     def body_action(self, task_type, args):
         # Currently a body uses its own camera
         body = args['body']
+        logging.info(f"[DEBUG] (pid: {os.getpid()}) Getting initialized body {body} for task {task_type}")
         arm = self.get_initialized_body(body, task_type)
+
         try:
             arm.run_forever(return_on_finish=True)
             # arm.run_forever(return_on_finish=True, execute=False)  # for debugging with no real movement

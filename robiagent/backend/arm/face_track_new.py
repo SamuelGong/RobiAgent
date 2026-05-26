@@ -567,9 +567,23 @@ class SO101AdvancedController:
                 "ik_depth_used": 0,
                 "ik_selected_alpha": 0.0,
             }
+
         attempts = 0
+        ik_trace: list[dict[str, Any]] = []
+
         ok, joints_act, diag = self._try_solve_ee_target_hard(target, robot_obs)
         attempts += 1
+        ik_trace.append(
+            {
+                "depth": 0,
+                "alpha": 1.0,
+                "ok": bool(ok),
+                "reason": diag.get("reason", ""),
+                "ik_residual_pos": diag.get("ik_residual_pos"),
+                "ik_residual_rot": diag.get("ik_residual_rot"),
+            }
+        )
+
         if ok:
             if execute:
                 self.robot.send_action(joints_act)
@@ -582,6 +596,7 @@ class SO101AdvancedController:
                 "ik_selected_alpha": 1.0,
                 "ik_residual_pos": diag.get("ik_residual_pos"),
                 "ik_residual_rot": diag.get("ik_residual_rot"),
+                "ik_trace": ik_trace,
             }
 
         if ik_mode == "hard":
@@ -607,12 +622,28 @@ class SO101AdvancedController:
         )
         right_alpha = 1.0
         max_depth = max(0, int(self.internal.ik_bisection_max_depth))
+
+        last_diag = diag
         for depth in range(1, max_depth + 1):
             mid_pose = self._interpolate_pose(actual_pose, right_pose, 0.5)
             mid_alpha = right_alpha * 0.5
             mid_target = self._pose_to_target(mid_pose, target)
+
             ok, joints_act, diag = self._try_solve_ee_target_hard(mid_target, robot_obs)
             attempts += 1
+            last_diag = diag
+
+            ik_trace.append(
+                {
+                    "depth": depth,
+                    "alpha": mid_alpha,
+                    "ok": bool(ok),
+                    "reason": diag.get("reason", ""),
+                    "ik_residual_pos": diag.get("ik_residual_pos"),
+                    "ik_residual_rot": diag.get("ik_residual_rot"),
+                }
+            )
+
             if ok:
                 if execute:
                     self.robot.send_action(joints_act)
@@ -625,7 +656,9 @@ class SO101AdvancedController:
                     "ik_selected_alpha": mid_alpha,
                     "ik_residual_pos": diag.get("ik_residual_pos"),
                     "ik_residual_rot": diag.get("ik_residual_rot"),
+                    "ik_trace": ik_trace,
                 }
+
             right_pose = mid_pose
             right_alpha = mid_alpha
 
@@ -636,6 +669,10 @@ class SO101AdvancedController:
             "ik_attempts": attempts,
             "ik_depth_used": max_depth,
             "ik_selected_alpha": 0.0,
+            "ik_residual_pos": last_diag.get("ik_residual_pos"),
+            "ik_residual_rot": last_diag.get("ik_residual_rot"),
+            "ik_last_reason": last_diag.get("reason", ""),
+            "ik_trace": ik_trace,
         }
 
 
@@ -1179,6 +1216,12 @@ class FaceTrackNew:
             ik_result = self.arm.send_ee_target(
                 target, robot_obs=robot_obs, execute=execute
             )
+            # only for DEBUG
+            if (
+                ik_result.get("source") == "hold"
+                and not ik_result.get("sent", False)
+            ):
+                print("[IK HOLD_FAIL]", ik_result)
             self.last_ik_diag = {
                 "ik_status": f"{ik_result.get('source', 'hold')}_{'ok' if ik_result.get('sent', False) else 'fail'}",
                 "ik_attempts": ik_result.get("ik_attempts", 0),

@@ -170,7 +170,7 @@ class BasicAgent(BaseAgent):
         set_log(log_path=log_path)
 
         body_id = f"{body}_{task_type}"
-        logging.info(f'Body process {body_id} started')
+        logging.info(f'Body process {body_id} started (pid: {os.getpid()})')
 
         self.skillset.initialize_body(body, task_type)
         channel_to_send = READY
@@ -225,15 +225,21 @@ class BasicAgent(BaseAgent):
             if body is None:
                 continue
 
+            task_name = task["name"]
             task_type = task["skill"]
+
             body_id = f"{body}_{task_type}"
             if body_id in body_ready:
+                result[task_name] = {  # Important
+                    'body_id': body_id
+                }
                 continue
             body_ready[body_id] = 0
 
             # Create long-live subprocess for each body
             _ = process_pool.apply_async(self.long_live_body_process, (body, task_type))
-            task_name = task["name"]
+            logging.info(f'Created Long-live process for body {body} with task {task_type}')
+
             result[task_name] = {
                 'body_id': body_id
             }

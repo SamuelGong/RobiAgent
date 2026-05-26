@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import cv2
 import time
+from cv2_enumerate_cameras import enumerate_cameras
 from typing import Any, Callable, Optional, Protocol
 
 
@@ -48,6 +49,71 @@ class TrackingSession:
         self.last_face_time = now
 
 
+def _uid_candidates(uid) -> set[str]:
+    s = str(uid).strip()
+    candidates = {s, s.lower()}
+
+    # 0x... 十六进制
+    if s.lower().startswith("0x"):
+        try:
+            n = int(s, 16)
+            candidates.add(str(n))
+            candidates.add(hex(n).lower())
+            candidates.add(format(n, "x").lower())
+        except ValueError:
+            pass
+
+    # 纯数字，可能是十进制 UID
+    elif s.isdigit():
+        try:
+            n = int(s, 10)
+            candidates.add(str(n))
+            candidates.add(hex(n).lower())
+            candidates.add(format(n, "x").lower())
+        except ValueError:
+            pass
+
+    # 裸十六进制，不带 0x，例如 2400000bda5883
+    elif all(c in "0123456789abcdefABCDEF" for c in s):
+        try:
+            n = int(s, 16)
+            candidates.add(str(n))
+            candidates.add(hex(n).lower())
+            candidates.add(format(n, "x").lower())
+        except ValueError:
+            pass
+
+    return candidates
+
+
+def get_camera_id_by_uid(
+    uid: str | int,
+    backend: int = cv2.CAP_AVFOUNDATION,
+) -> int:
+    target_candidates = _uid_candidates(uid)
+
+    for cam in enumerate_cameras(backend):
+        cam_candidates = _uid_candidates(cam.path)
+
+        if target_candidates & cam_candidates:
+            return cam.index
+
+    available = [
+        {
+            "index": cam.index,
+            "name": getattr(cam, "name", None),
+            "path": str(cam.path),
+        }
+        for cam in enumerate_cameras(backend)
+    ]
+
+    raise RuntimeError(
+        f"camera not found: {uid}\n"
+        f"normalized candidates: {sorted(target_candidates)}\n"
+        f"available cameras: {available}"
+    )
+
+
 # Open camera, run process_frame + draw_debug + imshow until quit or finished.
 def run_face_tracking_loop(
     tracker: Any,
@@ -61,8 +127,9 @@ def run_face_tracking_loop(
     # Lazy-imported from ``face_track`` to avoid import cycles with modules that import ``TrackingSession`` from this module.
     from robiagent.backend.arm.face_track import open_camera
 
+    id = get_camera_id_by_uid(uid=camera_config.uid)
     cap = open_camera(
-        camera_id=camera_config.id,
+        camera_id=id,
         width=camera_config.width,
         height=camera_config.height,
         fps=camera_config.fps,
