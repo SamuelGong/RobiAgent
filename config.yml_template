@@ -84,9 +84,9 @@ task:
     touch_phone:
         geometry:
             camera_origin_in_ik_m:
-                - -0.075
+                - -0.074
                 - -0.03
-                - 0.26
+                - 0.27
         model_path: "thirdparty/yolo/yolo26x.pt"
         move_epoch: 10
         interpolation_steps: 50
