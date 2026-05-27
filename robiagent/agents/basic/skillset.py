@@ -89,7 +89,7 @@ class BasicSkillset(object):
         arm = self.get_initialized_body(body, task_type)
 
         try:
-            arm.run_forever(return_on_finish=True)
+            arm.run_forever(return_on_finish=True, args=args)
             # arm.run_forever(return_on_finish=True, execute=False)  # for debugging with no real movement
             resp = "done"
         except KeyboardInterrupt:

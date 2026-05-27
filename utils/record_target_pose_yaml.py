@@ -170,11 +170,16 @@ def main() -> int:
         values = [round(float(pose[key]), 6) for key in order]
         yaml_list_text = "\n".join(f"- {value}" for value in values) + "\n"
 
-        OUTPUT_PATH.write_text(yaml_list_text, encoding="utf-8")
+        # OUTPUT_PATH.write_text(yaml_list_text, encoding="utf-8")
+        # print(f"\nSaved YAML list to: {OUTPUT_PATH.resolve()}")
+        # print("\nYAML list:")
+        # print(yaml_list_text, end="")
 
-        print(f"\nSaved YAML list to: {OUTPUT_PATH.resolve()}")
-        print("\nYAML list:")
-        print(yaml_list_text, end="")
+        json_list_text = "\n".join(f"{value}," for value in values)[:-1]
+        OUTPUT_PATH.write_text(json_list_text, encoding="utf-8")
+        print(f"\nSaved JSON list to: {OUTPUT_PATH.resolve()}")
+        print("\nJSON list:")
+        print(json_list_text, end="")
 
         print("\nJoint order for the YAML list above:")
         for i, key in enumerate(order):

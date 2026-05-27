@@ -533,7 +533,7 @@ class PhoneTouch:
         self.arm.disconnect()
         self.camera.disconnect()
 
-    def run_forever(self, return_on_finish=True):
+    def run_forever(self, return_on_finish=True, args=None, execute=True):
         try:
             color_frame, depth_map = self.camera.capture()
             status,phone_axis = self.phone_detector.get_phone_axis(depth_map, color_frame, "center")

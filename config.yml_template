@@ -51,28 +51,40 @@ task:
         control_hz: 50
         lost_timeout: 2.0
         min_detection_confidence: 0.6
-        track_duration_s: 422
+        track_duration_s: 25
         hold_last_on_timeout: true
         desired_eye_distance_m: 0.65
-        target_plane_below_eye_m: 0.20
+        target_plane_below_eye_m: 0.15
         screen_tilt_deg: 30.0
-        ik_mode: "hard_bisection"
+        ik_mode: "hard_binary_search"
         ik_bisection_max_depth: 6
+        ik_binary_search_alpha_step: 0.01
         ik_pos_tol_m: 0.1
         ik_rot_tol_rad: 0.05
         face_hold_enabled: true
         face_hold_release_m: 0.025
         face_hold_candidate_m: 0.020
-        face_hold_stable_s: 0.1
+        face_hold_stable_s: 0.05
         target_slew_enabled: true
         target_pos_deadband_m: 0.001
         target_normal_deadband_deg: 0.1
         target_max_pos_step_m: 0.003
         target_max_normal_step_deg: 0.3
+        ik_debug_enabled: true
+        ik_debug_print: false
+        ik_debug_jsonl_path: ik_debug_log.jsonl
+        ik_joint_delta_gate_enabled: true
+        ik_max_joint_delta_deg: 8.0
+        ik_joint_delta_gate_keys:
+            - shoulder_pan.pos
+            - shoulder_lift.pos
+            - elbow_flex.pos
+            - wrist_flex.pos
+            - wrist_roll.pos
     touch_phone:
         geometry:
             camera_origin_in_ik_m:
-                - -0.062
+                - -0.075
                 - -0.03
                 - 0.26
         model_path: "thirdparty/yolo/yolo26x.pt"
@@ -82,13 +94,6 @@ task:
         use_weighted_interpolation: true
         touch_step: 1
     simple_movement:
-        target_pose:
-            - 43.120879
-            - -110.813187
-            - 72.703297
-            - 43.868132
-            - -1.538462
-            - 44.899329
         move_steps: 50
         step_sleep_s: 0.02
         hold_s: 3

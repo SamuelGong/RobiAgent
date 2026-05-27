@@ -631,8 +631,8 @@ class FaceTrack:
 
         return display
 
-    def run_forever(self, return_on_finish: bool = True,
-                    execute: bool = True) -> dict[str, Any] | None:
+    def run_forever(self, return_on_finish=True, args=None,
+                    execute=True) -> dict[str, Any] | None:
         def on_key(key: int) -> None:
             if key == ord("h"):
                 self.arm.go_home()

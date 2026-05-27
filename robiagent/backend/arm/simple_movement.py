@@ -109,13 +109,9 @@ class SimpleMove:
         obs = self.robot.get_observation()
         return {k: float(obs[k]) for k in self.action_keys if k in obs}
 
-    def _target_pose_to_action(self) -> dict[str, float]:
+    def _target_pose_to_action(self, raw_target) -> dict[str, float]:
         if self.start_pose is None:
             raise RuntimeError("start_pose is not initialized. Call connect() first.")
-
-        raw_target = self._cfg("target_pose", None)
-        if raw_target is None:
-            raise ValueError("task_config.target_pose is required.")
 
         # Start with current pose so any extra action keys remain unchanged.
         target_action = dict(self.start_pose)
@@ -148,7 +144,7 @@ class SimpleMove:
             raise RuntimeError("Robot not connected.")
         self.robot.send_action(dict(pose))
 
-    def move_to_target(self) -> dict[str, Any]:
+    def move_to_target(self, target_pose) -> dict[str, Any]:
         """
         Move from current joint pose to target joint pose.
 
@@ -161,7 +157,7 @@ class SimpleMove:
         - This class creates the robot with disable_torque_on_disconnect=False.
         - So even after disconnect(), normal disconnect should not disable torque.
         """
-        target_action = self._target_pose_to_action()
+        target_action = self._target_pose_to_action(target_pose)
 
         move_steps = max(1, int(self._cfg("move_steps", 50)))
         step_sleep_s = max(0.0, float(self._cfg("step_sleep_s", 0.02)))
@@ -213,9 +209,9 @@ class SimpleMove:
             "hold_s": hold_s,
         }
 
-    def run_forever(self, return_on_finish: bool = True) -> dict[str, Any]:
+    def run_forever(self, return_on_finish=True, args=None, execute=True) -> dict[str, Any]:
         """
         Kept for interface similarity with FaceTrack / PhoneTouch.
         This is actually a one-shot movement.
         """
-        return self.move_to_target()
+        return self.move_to_target(args["target_pose"])

@@ -3,6 +3,9 @@ from __future__ import annotations
 import cv2
 import math
 import time
+import json
+import traceback
+import logging
 import numpy as np
 from typing import Any, Optional
 from dataclasses import dataclass
@@ -232,8 +235,17 @@ class NewInternalParams:
     target_plane_below_eye_m: float = 0.15
     ik_mode: str = "hard_bisection"
     ik_bisection_max_depth: int = 5
+    # For ik_mode == "hard_binary_search".
+    # Candidate alpha values are 0, step, 2*step, ..., 1.0.
+    # Default 0.01 means grid: 0, 0.01, 0.02, ..., 0.99, 1.0.
+    ik_binary_search_alpha_step: float = 0.01
     ik_pos_tol_m: float = 0.02
     ik_rot_tol_rad: float = 0.10
+
+    # IK/control debug.
+    ik_debug_enabled: bool = True
+    ik_debug_print: bool = False
+    ik_debug_jsonl_path: str = "ik_debug_log.jsonl"
 
     # Face stationary hold / anchor gate.
     face_hold_enabled: bool = True
@@ -247,6 +259,18 @@ class NewInternalParams:
     target_normal_deadband_deg: float = 0.5  # 0.5 deg
     target_max_pos_step_m: float = 0.001  # 1 cm / control tick
     target_max_normal_step_deg: float = 1.0  # 1 deg / control tick
+
+    # Reject IK solutions that jump to a far-away joint-space branch.
+    # Units are robot joint action units. With use_degrees=True, these are degrees.
+    ik_joint_delta_gate_enabled: bool = True
+    ik_max_joint_delta_deg: float = 8.0
+    ik_joint_delta_gate_keys: tuple[str, ...] = (
+        "shoulder_pan.pos",
+        "shoulder_lift.pos",
+        "elbow_flex.pos",
+        "wrist_flex.pos",
+        "wrist_roll.pos",
+    )
 
 
 @dataclass
@@ -304,7 +328,12 @@ class SO101AdvancedController:
                 disable_torque_on_disconnect=False,
             )
         )
-        self.robot.connect(calibrate=False)
+        try:
+            self.robot.connect(calibrate=False)
+        except Exception as e:
+            logging.info(f"{e}")
+            logging.info(f"{traceback.format_exc()}")
+
         self.action_keys = list(self.robot.action_features.keys())
         self.home = self.get_pose()
 
@@ -344,6 +373,18 @@ class SO101AdvancedController:
         self.robot.disconnect()
         self.robot = None
 
+    @staticmethod
+    def _selected_target_fields(target: EEPoseTarget) -> dict[str, Any]:
+        return {
+            "ik_selected_target_pos": target.pos.copy(),
+            "ik_selected_target_normal": target.normal.copy(),
+            "ik_selected_target_wxyz": (
+                float(target.wx),
+                float(target.wy),
+                float(target.wz),
+            ),
+        }
+
     def get_pose(self) -> dict[str, float]:
         obs = self.robot.get_observation()
         return {k: float(obs[k]) for k in self.action_keys}
@@ -371,12 +412,150 @@ class SO101AdvancedController:
             "ee.gripper_pos": float(self.home.get("gripper.pos", 0.0)),
         }
 
+    @staticmethod
+    def _target_debug_fields(target: EEPoseTarget) -> dict[str, Any]:
+        return {
+            "ik_selected_target_pos": [
+                float(target.pos[0]),
+                float(target.pos[1]),
+                float(target.pos[2]),
+            ],
+            "ik_selected_target_normal": [
+                float(target.normal[0]),
+                float(target.normal[1]),
+                float(target.normal[2]),
+            ],
+            "ik_selected_target_rvec": [
+                float(target.wx),
+                float(target.wy),
+                float(target.wz),
+            ],
+        }
+
+    def _joints_debug_fields(
+        self,
+        joints_act: Optional[dict[str, float]],
+        robot_obs: dict[str, Any],
+    ) -> dict[str, Any]:
+        if joints_act is None:
+            return {
+                "ik_command_joints": None,
+                "ik_current_joints": None,
+                "ik_joint_delta": None,
+                "ik_joint_delta_abs_max": None,
+                "ik_joint_delta_abs_max_key": "",
+            }
+
+        command: dict[str, float] = {}
+        current: dict[str, float] = {}
+        delta: dict[str, float] = {}
+
+        for k in self.action_keys:
+            if k not in joints_act:
+                continue
+
+            cmd = float(joints_act[k])
+            command[k] = cmd
+
+            if k in robot_obs:
+                cur = float(robot_obs[k])
+                current[k] = cur
+                delta[k] = cmd - cur
+
+        if delta:
+            max_key = max(delta.keys(), key=lambda key: abs(delta[key]))
+            max_abs = abs(delta[max_key])
+        else:
+            max_key = ""
+            max_abs = None
+
+        return {
+            "ik_command_joints": command,
+            "ik_current_joints": current,
+            "ik_joint_delta": delta,
+            "ik_joint_delta_abs_max": max_abs,
+            "ik_joint_delta_abs_max_key": max_key,
+        }
+
+    @staticmethod
+    def _trace_entry(
+        *,
+        depth: int,
+        alpha: float,
+        ok: bool,
+        diag: dict[str, Any],
+        mode: str = "",
+        iter_idx: Optional[int] = None,
+    ) -> dict[str, Any]:
+        entry = {
+            "depth": int(depth),
+            "alpha": float(alpha),
+            "ok": bool(ok),
+            "reason": diag.get("reason", ""),
+            "ik_residual_pos": diag.get("ik_residual_pos"),
+            "ik_residual_rot": diag.get("ik_residual_rot"),
+            "ik_joint_delta_abs_max": diag.get("ik_joint_delta_abs_max"),
+            "ik_joint_delta_abs_max_key": diag.get("ik_joint_delta_abs_max_key", ""),
+        }
+        if mode:
+            entry["mode"] = mode
+        if iter_idx is not None:
+            entry["iter"] = int(iter_idx)
+        return entry
+
     def _finalize_joints_action(self, joints_act: dict[str, float]) -> dict[str, float]:
         if "wrist_roll.pos" in joints_act and "wrist_roll.pos" in self.home:
             joints_act["wrist_roll.pos"] = float(self.home["wrist_roll.pos"])
         if "gripper.pos" in joints_act and "gripper.pos" in self.home:
             joints_act["gripper.pos"] = float(self.home["gripper.pos"])
         return joints_act
+
+    def _joint_delta_gate_diag(
+        self,
+        joints_act: dict[str, float],
+        robot_obs: dict[str, Any],
+    ) -> dict[str, Any]:
+        enabled = bool(getattr(self.internal, "ik_joint_delta_gate_enabled", True))
+        max_allowed = float(getattr(self.internal, "ik_max_joint_delta_deg", 8.0))
+        gate_keys = tuple(
+            getattr(
+                self.internal,
+                "ik_joint_delta_gate_keys",
+                (
+                    "shoulder_pan.pos",
+                    "shoulder_lift.pos",
+                    "elbow_flex.pos",
+                    "wrist_flex.pos",
+                    "wrist_roll.pos",
+                ),
+            )
+        )
+
+        deltas: dict[str, float] = {}
+
+        for key in gate_keys:
+            if key not in joints_act or key not in robot_obs:
+                continue
+            deltas[key] = float(joints_act[key]) - float(robot_obs[key])
+
+        if deltas:
+            max_key = max(deltas.keys(), key=lambda k: abs(deltas[k]))
+            max_abs = abs(deltas[max_key])
+        else:
+            max_key = ""
+            max_abs = 0.0
+
+        passed = (not enabled) or (max_abs <= max_allowed)
+
+        return {
+            "ik_joint_delta_gate_enabled": enabled,
+            "ik_max_joint_delta_deg": max_allowed,
+            "ik_joint_delta_gate_keys": list(gate_keys),
+            "ik_joint_delta": deltas,
+            "ik_joint_delta_abs_max": max_abs,
+            "ik_joint_delta_abs_max_key": max_key,
+            "ik_joint_delta_pass": passed,
+        }
 
     def _rvec_to_ee_state(self, pos: np.ndarray, rvec: np.ndarray) -> EEPoseState:
         rot, _ = cv2.Rodrigues(rvec.reshape(3, 1))
@@ -456,6 +635,9 @@ class SO101AdvancedController:
                 {"reason": f"ik_exception:{type(e).__name__}", "error": str(e)},
             )
         joints_act = self._finalize_joints_action(joints_act)
+        joint_gate_diag = self._joint_delta_gate_diag(joints_act, robot_obs)
+        joint_dbg = self._joints_debug_fields(joints_act, robot_obs)
+
         try:
             ee_obs = self.joints_to_ee((joints_act, robot_obs))
             solved_pos = np.array(
@@ -478,14 +660,29 @@ class SO101AdvancedController:
             )
             pos_err = float(np.linalg.norm(solved_pos - target.pos))
             rot_err = self._rotation_error_rad(solved_rot, target_rot)
-            feasible = (
-                pos_err <= self.internal.ik_pos_tol_m
-                and rot_err <= self.internal.ik_rot_tol_rad
-            )
+
+            pos_pass = pos_err <= self.internal.ik_pos_tol_m
+            rot_pass = rot_err <= self.internal.ik_rot_tol_rad
+            joint_pass = bool(joint_gate_diag["ik_joint_delta_pass"])
+
+            feasible = pos_pass and rot_pass and joint_pass
+
+            if feasible:
+                reason = "ok"
+            elif not joint_pass:
+                reason = "joint_delta_too_large"
+            else:
+                reason = "hard_residual_too_large"
+
             diag = {
-                "reason": "ok" if feasible else "hard_residual_too_large",
+                "reason": reason,
                 "ik_residual_pos": pos_err,
                 "ik_residual_rot": rot_err,
+                "ik_pos_tol_m": float(self.internal.ik_pos_tol_m),
+                "ik_rot_tol_rad": float(self.internal.ik_rot_tol_rad),
+                "ik_pos_pass": bool(pos_pass),
+                "ik_rot_pass": bool(rot_pass),
+                **joint_gate_diag,
             }
             return feasible, joints_act if feasible else None, diag
         except Exception as e:
@@ -511,7 +708,10 @@ class SO101AdvancedController:
                 {"reason": f"soft_ik_exception:{type(e).__name__}", "error": str(e)},
             )
         joints_act = self._finalize_joints_action(joints_act)
-        return True, joints_act, {"reason": "soft_ok"}
+        return True, joints_act, {
+            "reason": "soft_ok",
+            **self._joints_debug_fields(joints_act, robot_obs),
+        }
 
     def get_actual_ee_state(
         self, robot_obs: Optional[dict[str, Any]] = None
@@ -532,7 +732,7 @@ class SO101AdvancedController:
         if robot_obs is None:
             robot_obs = self.robot.get_observation()
         ik_mode = str(self.internal.ik_mode).lower().strip()
-        if ik_mode not in {"soft", "hard", "hard_bisection"}:
+        if ik_mode not in {"soft", "hard", "hard_bisection", "hard_binary_search"}:
             ik_mode = "hard_bisection"
 
         if ik_mode == "soft":
@@ -574,14 +774,7 @@ class SO101AdvancedController:
         ok, joints_act, diag = self._try_solve_ee_target_hard(target, robot_obs)
         attempts += 1
         ik_trace.append(
-            {
-                "depth": 0,
-                "alpha": 1.0,
-                "ok": bool(ok),
-                "reason": diag.get("reason", ""),
-                "ik_residual_pos": diag.get("ik_residual_pos"),
-                "ik_residual_rot": diag.get("ik_residual_rot"),
-            }
+            self._trace_entry(depth=0, alpha=1.0, ok=ok, diag=diag, mode="direct")
         )
 
         if ok:
@@ -597,6 +790,11 @@ class SO101AdvancedController:
                 "ik_residual_pos": diag.get("ik_residual_pos"),
                 "ik_residual_rot": diag.get("ik_residual_rot"),
                 "ik_trace": ik_trace,
+                "ik_joint_delta_abs_max": diag.get("ik_joint_delta_abs_max"),
+                "ik_joint_delta_abs_max_key": diag.get("ik_joint_delta_abs_max_key"),
+                "ik_joint_delta": diag.get("ik_joint_delta"),
+                **self._target_debug_fields(target),
+                **self._joints_debug_fields(joints_act, robot_obs),
             }
 
         if ik_mode == "hard":
@@ -620,6 +818,102 @@ class SO101AdvancedController:
             rot=target_rot,
             normal=target.normal.copy(),
         )
+
+        if ik_mode == "hard_binary_search":
+            # Search the largest feasible alpha on a discrete grid:
+            # 0, step, 2*step, ..., 1.0.
+            #
+            # We already tried alpha=1.0 above and it failed, so this branch
+            # binary-searches between alpha=0.0, treated as feasible hold/current,
+            # and alpha=1.0, known infeasible in this frame.
+            best_target: Optional[EEPoseTarget] = None
+            alpha_step = float(
+                getattr(self.internal, "ik_binary_search_alpha_step", 0.01)
+            )
+            if not math.isfinite(alpha_step) or alpha_step <= 0.0:
+                alpha_step = 0.01
+            alpha_step = clamp(alpha_step, 1e-6, 1.0)
+
+            max_idx = max(1, int(math.ceil(1.0 / alpha_step)))
+            low_idx = 0          # alpha=0.0, feasible by definition: current/hold
+            high_idx = max_idx   # alpha=1.0, already failed above
+
+            best_joints_act: Optional[dict[str, float]] = None
+            best_diag: dict[str, Any] = diag
+            best_alpha = 0.0
+            search_iters = 0
+
+            last_diag = diag
+
+            while high_idx - low_idx > 1:
+                mid_idx = (low_idx + high_idx) // 2
+                mid_alpha = min(1.0, mid_idx * alpha_step)
+
+                mid_pose = self._interpolate_pose(actual_pose, right_pose, mid_alpha)
+                mid_target = self._pose_to_target(mid_pose, target)
+
+                ok, joints_act, mid_diag = self._try_solve_ee_target_hard(
+                    mid_target, robot_obs
+                )
+                attempts += 1
+                search_iters += 1
+                last_diag = mid_diag
+
+                ik_trace.append(
+                    self._trace_entry(
+                        depth=0,
+                        alpha=mid_alpha,
+                        ok=ok,
+                        diag=mid_diag,
+                        mode="binary_search",
+                        iter_idx=search_iters,
+                    )
+                )
+
+                if ok:
+                    low_idx = mid_idx
+                    best_alpha = mid_alpha
+                    best_joints_act = joints_act
+                    best_diag = mid_diag
+                    best_target = mid_target
+                else:
+                    high_idx = mid_idx
+
+            if best_joints_act is not None and best_alpha > 0.0:
+                if execute:
+                    self.robot.send_action(best_joints_act)
+                return {
+                    "sent": True,
+                    "source": "binary_search",
+                    "reason": best_diag["reason"],
+                    "ik_attempts": attempts,
+                    "ik_depth_used": search_iters,
+                    "ik_selected_alpha": best_alpha,
+                    "ik_residual_pos": best_diag.get("ik_residual_pos"),
+                    "ik_residual_rot": best_diag.get("ik_residual_rot"),
+                    "ik_binary_search_alpha_step": alpha_step,
+                    "ik_trace": ik_trace,
+                    "ik_joint_delta_abs_max": diag.get("ik_joint_delta_abs_max"),
+                    "ik_joint_delta_abs_max_key": diag.get("ik_joint_delta_abs_max_key"),
+                    "ik_joint_delta": diag.get("ik_joint_delta"),
+                    **self._target_debug_fields(best_target),
+                    **self._joints_debug_fields(best_joints_act, robot_obs),
+                }
+
+            return {
+                "sent": False,
+                "source": "hold",
+                "reason": "hard_binary_search_no_feasible_alpha",
+                "ik_attempts": attempts,
+                "ik_depth_used": search_iters,
+                "ik_selected_alpha": 0.0,
+                "ik_residual_pos": last_diag.get("ik_residual_pos"),
+                "ik_residual_rot": last_diag.get("ik_residual_rot"),
+                "ik_last_reason": last_diag.get("reason", ""),
+                "ik_binary_search_alpha_step": alpha_step,
+                "ik_trace": ik_trace,
+            }
+
         right_alpha = 1.0
         max_depth = max(0, int(self.internal.ik_bisection_max_depth))
 
@@ -634,14 +928,13 @@ class SO101AdvancedController:
             last_diag = diag
 
             ik_trace.append(
-                {
-                    "depth": depth,
-                    "alpha": mid_alpha,
-                    "ok": bool(ok),
-                    "reason": diag.get("reason", ""),
-                    "ik_residual_pos": diag.get("ik_residual_pos"),
-                    "ik_residual_rot": diag.get("ik_residual_rot"),
-                }
+                self._trace_entry(
+                    depth=depth,
+                    alpha=mid_alpha,
+                    ok=ok,
+                    diag=diag,
+                    mode="bisection",
+                )
             )
 
             if ok:
@@ -657,6 +950,11 @@ class SO101AdvancedController:
                     "ik_residual_pos": diag.get("ik_residual_pos"),
                     "ik_residual_rot": diag.get("ik_residual_rot"),
                     "ik_trace": ik_trace,
+                    "ik_joint_delta_abs_max": diag.get("ik_joint_delta_abs_max"),
+                    "ik_joint_delta_abs_max_key": diag.get("ik_joint_delta_abs_max_key"),
+                    "ik_joint_delta": diag.get("ik_joint_delta"),
+                    **self._target_debug_fields(mid_target),
+                    **self._joints_debug_fields(joints_act, robot_obs),
                 }
 
             right_pose = mid_pose
@@ -781,8 +1079,12 @@ class FaceTrackNew:
         self.internal_config.ik_bisection_max_depth = int(
             task_config.ik_bisection_max_depth
         )
-        self.internal_config.ik_pos_tol_m = float(task_config.ik_pos_tol_m)
-        self.internal_config.ik_rot_tol_rad = float(task_config.ik_rot_tol_rad)
+        self.internal_config.ik_pos_tol_m = task_config.ik_pos_tol_m
+        self.internal_config.ik_rot_tol_rad = task_config.ik_rot_tol_rad
+        self.internal_config.ik_binary_search_alpha_step = task_config.ik_binary_search_alpha_step
+        self.internal_config.ik_joint_delta_gate_enabled = task_config.ik_joint_delta_gate_enabled
+        self.internal_config.ik_max_joint_delta_deg = task_config.ik_max_joint_delta_deg
+        self.internal_config.ik_joint_delta_gate_keys = task_config.ik_joint_delta_gate_keys
 
         self.internal_config.face_hold_enabled = task_config.face_hold_enabled
         self.internal_config.face_hold_release_m = task_config.face_hold_release_m
@@ -794,6 +1096,9 @@ class FaceTrackNew:
         self.internal_config.target_normal_deadband_deg = task_config.target_normal_deadband_deg
         self.internal_config.target_max_pos_step_m = task_config.target_max_pos_step_m
         self.internal_config.target_max_normal_step_deg = task_config.target_max_normal_step_deg
+        self.internal_config.ik_debug_enabled = task_config.ik_debug_enabled
+        self.internal_config.ik_debug_print = task_config.ik_debug_print
+        self.internal_config.ik_debug_jsonl_path = task_config.ik_debug_jsonl_path
 
         self.internal_config.urdf_path = body_config.urdf_path
         self.arm = SO101AdvancedController(
@@ -828,6 +1133,9 @@ class FaceTrackNew:
         self.face_hold_candidate_since: float = 0.0
         self.face_hold_status: str = "disabled"
         self.face_hold_dist_m: float = 0.0
+
+        self.ik_debug_seq: int = 0
+        self.last_ik_debug_snapshot: Optional[dict[str, Any]] = None
 
     def connect(self):
         self.arm.connect()
@@ -940,6 +1248,31 @@ class FaceTrackNew:
             wx=wx,
             wy=wy,
             wz=wz,
+            distance_error_m=template.distance_error_m,
+            tilt_error_deg=template.tilt_error_deg,
+            degraded=template.degraded,
+            degraded_reason=template.degraded_reason,
+        )
+
+    def _target_from_ik_result(
+        self,
+        template: EEPoseTarget,
+        ik_result: dict[str, Any],
+    ) -> Optional[EEPoseTarget]:
+        pos = ik_result.get("ik_selected_target_pos")
+        normal = ik_result.get("ik_selected_target_normal")
+        wxyz = ik_result.get("ik_selected_target_wxyz")
+
+        if pos is None or normal is None or wxyz is None:
+            return None
+
+        wx, wy, wz = wxyz
+        return EEPoseTarget(
+            pos=np.asarray(pos, dtype=np.float64).reshape(3).copy(),
+            normal=normalize(np.asarray(normal, dtype=np.float64).reshape(3)),
+            wx=float(wx),
+            wy=float(wy),
+            wz=float(wz),
             distance_error_m=template.distance_error_m,
             tilt_error_deg=template.tilt_error_deg,
             degraded=template.degraded,
@@ -1107,6 +1440,203 @@ class FaceTrackNew:
         self.face_hold_status = f"candidate_wait_{candidate_age:.2f}s"
         return anchor.copy()
 
+    def _debug_arr(self, v: Any) -> Optional[list[float]]:
+        if v is None:
+            return None
+        a = np.asarray(v, dtype=np.float64).reshape(-1)
+        return [float(x) for x in a.tolist()]
+
+    def _debug_target(self, target: Optional[EEPoseTarget]) -> Optional[dict[str, Any]]:
+        if target is None:
+            return None
+        return {
+            "pos": self._debug_arr(target.pos),
+            "normal": self._debug_arr(target.normal),
+            "rvec": [float(target.wx), float(target.wy), float(target.wz)],
+            "distance_error_m": float(target.distance_error_m),
+            "tilt_error_deg": float(target.tilt_error_deg),
+            "degraded": bool(target.degraded),
+            "degraded_reason": target.degraded_reason,
+        }
+
+    def _debug_state(self, state: Optional[EEPoseState]) -> Optional[dict[str, Any]]:
+        if state is None:
+            return None
+        return {
+            "pos": self._debug_arr(state.pos),
+            "normal": self._debug_arr(state.normal),
+            "rvec": self._debug_arr(state.rvec),
+        }
+
+    def _debug_normal_err_deg(
+        self, a: Optional[np.ndarray], b: Optional[np.ndarray]
+    ) -> Optional[float]:
+        if a is None or b is None:
+            return None
+        return float(normal_angle_deg(a, b))
+
+    def _debug_pos_err_m(
+        self, a: Optional[np.ndarray], b: Optional[np.ndarray]
+    ) -> Optional[float]:
+        if a is None or b is None:
+            return None
+        return float(np.linalg.norm(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)))
+
+    def _json_safe(self, obj: Any) -> Any:
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.float32, np.float64)):
+            return float(obj)
+        if isinstance(obj, (np.int32, np.int64)):
+            return int(obj)
+        if isinstance(obj, dict):
+            return {str(k): self._json_safe(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self._json_safe(v) for v in obj]
+        return obj
+
+    def _log_ik_control_tick(
+        self,
+        *,
+        now: float,
+        robot_obs: dict[str, Any],
+        actual_state: Optional[EEPoseState],
+        face_ik_measured: np.ndarray,
+        face_ik: np.ndarray,
+        raw_target: EEPoseTarget,
+        last_slew_before: Optional[EEPoseTarget],
+        target_sent_to_ik: EEPoseTarget,
+        ik_result: dict[str, Any],
+    ) -> None:
+        if not getattr(self.internal_config, "ik_debug_enabled", False):
+            return
+
+        self.ik_debug_seq += 1
+
+        selected_pos = ik_result.get("ik_selected_target_pos")
+        selected_normal = ik_result.get("ik_selected_target_normal")
+
+        record: dict[str, Any] = {
+            "seq": self.ik_debug_seq,
+            "t": float(now),
+            "dt_from_last_control_s": float(
+                0.0 if self.last_control_time <= 0.0 else now - self.last_control_time
+            ),
+            "ik": {
+                "mode": self.internal_config.ik_mode,
+                "source": ik_result.get("source"),
+                "sent": bool(ik_result.get("sent", False)),
+                "reason": ik_result.get("reason", ""),
+                "attempts": ik_result.get("ik_attempts"),
+                "depth_used": ik_result.get("ik_depth_used"),
+                "alpha": ik_result.get("ik_selected_alpha"),
+                "residual_pos": ik_result.get("ik_residual_pos"),
+                "residual_rot": ik_result.get("ik_residual_rot"),
+                "joint_delta_abs_max": ik_result.get("ik_joint_delta_abs_max"),
+                "joint_delta_abs_max_key": ik_result.get("ik_joint_delta_abs_max_key"),
+                "trace": ik_result.get("ik_trace"),
+            },
+            "face": {
+                "measured_ik": self._debug_arr(face_ik_measured),
+                "used_ik": self._debug_arr(face_ik),
+                "hold_status": self.face_hold_status,
+                "hold_dist_m": self.face_hold_dist_m,
+            },
+            "slew": {
+                "status": self.target_slew_status,
+                "pos_delta_m": self.target_slew_pos_delta_m,
+                "normal_delta_deg": self.target_slew_normal_delta_deg,
+                "last_slew_before": self._debug_target(last_slew_before),
+            },
+            "actual": self._debug_state(actual_state),
+            "raw_target": self._debug_target(raw_target),
+            "target_sent_to_ik": self._debug_target(target_sent_to_ik),
+            "selected_by_ik": {
+                "pos": self._debug_arr(selected_pos),
+                "normal": self._debug_arr(selected_normal),
+                "rvec": ik_result.get("ik_selected_target_rvec"),
+            },
+            "errors": {
+                "actual_to_target_pos_m": self._debug_pos_err_m(
+                    actual_state.pos if actual_state is not None else None,
+                    target_sent_to_ik.pos,
+                ),
+                "actual_to_target_normal_deg": self._debug_normal_err_deg(
+                    actual_state.normal if actual_state is not None else None,
+                    target_sent_to_ik.normal,
+                ),
+                "actual_to_selected_pos_m": self._debug_pos_err_m(
+                    actual_state.pos if actual_state is not None else None,
+                    np.asarray(selected_pos, dtype=np.float64) if selected_pos is not None else None,
+                ),
+                "actual_to_selected_normal_deg": self._debug_normal_err_deg(
+                    actual_state.normal if actual_state is not None else None,
+                    np.asarray(selected_normal, dtype=np.float64) if selected_normal is not None else None,
+                ),
+            },
+            "joints": {
+                "command": ik_result.get("ik_command_joints"),
+                "current": ik_result.get("ik_current_joints"),
+                "delta": ik_result.get("ik_joint_delta"),
+            },
+        }
+
+        prev = self.last_ik_debug_snapshot
+        if prev is not None:
+            prev_alpha = prev.get("alpha")
+            cur_alpha = ik_result.get("ik_selected_alpha")
+
+            record["prev_delta"] = {
+                "source_transition": f"{prev.get('source')}->{ik_result.get('source')}",
+                "alpha_delta": (
+                    None
+                    if prev_alpha is None or cur_alpha is None
+                    else float(cur_alpha) - float(prev_alpha)
+                ),
+                "target_sent_pos_delta_m": self._debug_pos_err_m(
+                    np.asarray(prev.get("target_sent_pos"), dtype=np.float64)
+                    if prev.get("target_sent_pos") is not None
+                    else None,
+                    target_sent_to_ik.pos,
+                ),
+                "target_sent_normal_delta_deg": self._debug_normal_err_deg(
+                    np.asarray(prev.get("target_sent_normal"), dtype=np.float64)
+                    if prev.get("target_sent_normal") is not None
+                    else None,
+                    target_sent_to_ik.normal,
+                ),
+                "actual_pos_delta_m": self._debug_pos_err_m(
+                    np.asarray(prev.get("actual_pos"), dtype=np.float64)
+                    if prev.get("actual_pos") is not None
+                    else None,
+                    actual_state.pos if actual_state is not None else None,
+                ),
+                "actual_normal_delta_deg": self._debug_normal_err_deg(
+                    np.asarray(prev.get("actual_normal"), dtype=np.float64)
+                    if prev.get("actual_normal") is not None
+                    else None,
+                    actual_state.normal if actual_state is not None else None,
+                ),
+            }
+
+        self.last_ik_debug_snapshot = {
+            "source": ik_result.get("source"),
+            "alpha": ik_result.get("ik_selected_alpha"),
+            "target_sent_pos": self._debug_arr(target_sent_to_ik.pos),
+            "target_sent_normal": self._debug_arr(target_sent_to_ik.normal),
+            "actual_pos": self._debug_arr(actual_state.pos) if actual_state is not None else None,
+            "actual_normal": self._debug_arr(actual_state.normal) if actual_state is not None else None,
+        }
+
+        line = json.dumps(self._json_safe(record), ensure_ascii=False)
+
+        path = getattr(self.internal_config, "ik_debug_jsonl_path", "ik_debug_log.jsonl")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+        if getattr(self.internal_config, "ik_debug_print", False):
+            print("[IKDBG]", line)
+
     def process_frame(
         self, frame_bgr, timestamp_ms: Optional[int] = None, execute: bool = True
     ) -> dict[str, Any]:
@@ -1211,12 +1741,41 @@ class FaceTrackNew:
             target = self.last_slew_target
 
         if now - self.last_control_time >= 1.0 / self.task_config.control_hz:
+            last_slew_before = self.last_slew_target
             target = self._slew_limit_target(raw_target, actual_state)
             self.last_target = target
 
             ik_result = self.arm.send_ee_target(
                 target, robot_obs=robot_obs, execute=execute
             )
+
+            self._log_ik_control_tick(
+                now=now,
+                robot_obs=robot_obs,
+                actual_state=actual_state,
+                face_ik_measured=face_ik_measured,
+                face_ik=face_ik,
+                raw_target=raw_target,
+                last_slew_before=last_slew_before,
+                target_sent_to_ik=target,
+                ik_result=ik_result,
+            )
+
+            selected_target = None
+            if ik_result.get("sent", False):
+                selected_target = self._target_from_ik_result(target, ik_result)
+
+            if selected_target is not None:
+                # Important:
+                # target_slew should remember what IK actually selected/sent,
+                # not the final target that may have been rejected.
+                target = selected_target
+                self.last_target = selected_target
+
+                if getattr(self.internal_config, "target_slew_enabled", False):
+                    self.last_slew_target = selected_target
+            else:
+                self.last_target = target
             # # only for DEBUG
             # if (
             #     ik_result.get("source") == "hold"
@@ -1232,6 +1791,8 @@ class FaceTrackNew:
                 "ik_residual_rot": ik_result.get("ik_residual_rot"),
                 "ik_reason": ik_result.get("reason", ""),
                 "ik_mode": self.internal_config.ik_mode,
+                "ik_joint_delta_abs_max": ik_result.get("ik_joint_delta_abs_max"),
+                "ik_joint_delta_abs_max_key": ik_result.get("ik_joint_delta_abs_max_key"),
             }
             self.last_control_time = now
         else:
@@ -1264,6 +1825,8 @@ class FaceTrackNew:
                     ),
                     "ik_residual_pos": self.last_ik_diag.get("ik_residual_pos"),
                     "ik_residual_rot": self.last_ik_diag.get("ik_residual_rot"),
+                    "ik_joint_delta_abs_max": self.last_ik_diag.get("ik_joint_delta_abs_max"),
+                    "ik_joint_delta_abs_max_key": self.last_ik_diag.get("ik_joint_delta_abs_max_key"),
                 },
             }
         )
@@ -1400,6 +1963,16 @@ class FaceTrackNew:
                 (180, 180, 255),
                 2,
             )
+            cv2.putText(
+                display,
+                f"joint_delta_max={overlay.get('ik_joint_delta_abs_max', 0.0) or 0.0:.1f} "
+                f"{overlay.get('ik_joint_delta_abs_max_key', '')}",
+                (20, 325),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.52,
+                (180, 180, 255),
+                2,
+            )
         else:
             cv2.putText(
                 display,
@@ -1413,7 +1986,7 @@ class FaceTrackNew:
         return display
 
     def run_forever(
-        self, return_on_finish: bool = True, execute: bool = True
+        self, return_on_finish=True, args=None, execute=True
     ) -> dict[str, Any] | None:
         def on_key(key: int) -> None:
             if key == ord("h"):
