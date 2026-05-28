@@ -16,7 +16,7 @@ As a **task orchestration and execution framework**, RobiAgent can start from a 
 * schedule different physical resources,
 * and drive task completion through perceptual feedback, shared state, and closed-loop adjustment during execution.
 
-To help developers quickly experience an end-to-end workflow, the current version of RobiAgent also ships with **a set of ready-to-use perception and action modules**, including LeRobot arm control, camera input, speech output, and screen interaction.
+To help developers quickly experience an end-to-end workflow, the current version of RobiAgent also ships with **a set of ready-to-use perception and action modules**, including LeRobot arm control, camera input and speech output.
 
 > RobiAgent, however, is not tied to any specific hardware setup or interaction pattern. Developers can plug in new sensors, actuators, or external tools as needed, wrap them as schedulable skills, and bring them into a unified embodied task workflow.
 
