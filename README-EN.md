@@ -20,7 +20,7 @@ To help developers quickly experience an end-to-end workflow, the current versio
 
 > RobiAgent, however, is not tied to any specific hardware setup or interaction pattern. Developers can plug in new sensors, actuators, or external tools as needed, wrap them as schedulable skills, and bring them into a unified embodied task workflow.
 
-<img width="1115" height="550" alt="Screenshot 2026-04-09 at 10 53 22" src="https://github.com/user-attachments/assets/d086bd10-d2e2-4019-a9bb-da9d2cd3457f" />
+<img width="1190" height="578" alt="Screenshot 2026-05-28 at 13 25 05" src="https://github.com/user-attachments/assets/974a997d-6463-4362-af9d-e5b933afbd2b" />
 
 # 1. Preparation
 
@@ -81,7 +81,7 @@ When a customer enters the space or wakes up the system:
 
 The overall process demonstrates RobiAgent's ability to connect customer perception, voice explanation, robotic-arm motion control, and terminal interaction into one coherent workflow.
 
-https://github.com/user-attachments/assets/0af5385e-33c3-4bad-bfd6-2829eebf7661
+https://github.com/user-attachments/assets/ec7ef897-21cb-43f1-afcc-c0d3baec4243
 
 > The video includes audio narration. For the best experience, please unmute it.
 
