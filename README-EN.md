@@ -99,5 +99,7 @@ Then update them as needed. For the meaning of each field, refer to [config_intr
 Finally, try this simple example:
 
 ```bash
-ra demo
+sudo ra demo
 ```
+
+> `sudo` is required only because the Intel RealSense depth camera used in this example—the camera that particularly assists the feature demonstration part—requires root privileges to run.

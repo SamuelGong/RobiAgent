@@ -99,5 +99,7 @@ cp .env_template .env
 随后，试试这个简单示例！
 
 ```bash
-ra demo
+sudo ra demo
 ```
+
+> 需要`sudo`仅仅是因为，示例中用到的 Intel RealSense 深度相机（辅助操纵演示机械臂决策的那个摄像头）运行需要`root`权限。
