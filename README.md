@@ -81,7 +81,7 @@ swift utils/list_cams.swift
 
 整个过程体现的是 RobiAgent 将顾客感知、语音讲解、机械臂运动控制与终端交互串联起来的能力。
 
-https://github.com/user-attachments/assets/0af5385e-33c3-4bad-bfd6-2829eebf7661
+https://github.com/user-attachments/assets/ec7ef897-21cb-43f1-afcc-c0d3baec4243
 
 > 视频有声音（语音播报），建议取消静音欣赏。
 
