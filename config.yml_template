@@ -70,9 +70,9 @@ task:
         target_normal_deadband_deg: 0.1
         target_max_pos_step_m: 0.003
         target_max_normal_step_deg: 0.3
-        ik_debug_enabled: true
-        ik_debug_print: false
-        ik_debug_jsonl_path: ik_debug_log.jsonl
+#        ik_debug_enabled: true
+#        ik_debug_print: false
+#        ik_debug_jsonl_path: ik_debug_log.jsonl
         ik_joint_delta_gate_enabled: true
         ik_max_joint_delta_deg: 8.0
         ik_joint_delta_gate_keys:
