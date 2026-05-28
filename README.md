@@ -1,5 +1,21 @@
 # RobiAgent
 
+<p align="center">
+    <a href="https://github.com/SamuelGong/Lotto/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SamuelGong/RobiAgent?color=yellow" alt="License"></a>
+</p>
+
+RobiAgent 是一个**具身智能体**，能够让本体在真实物理环境中完成复杂、长程、需要多模块协同的任务。
+
+作为**任务编排与执行框架**，RobiAgent 可以从高层目标出发，
+* 将任务拆解为一系列可执行技能，
+* 分析技能之间的依赖关系，
+* 调度不同物理资源，
+* 并在执行过程中通过感知反馈、状态共享和闭环调整来推进任务完成。
+
+为了便于开发者快速体验端到端能力，当前版本的 RobiAgent 也提供了**一组开箱即用的感知与动作模块**，包括 LeRobot 机械臂控制、相机输入、语音输出和屏幕交互等。
+
+> 但是，RobiAgent 并不绑定于特定硬件或交互形式；开发者可以按需接入新的传感器、执行器或外部工具，将其封装为可调度技能，并纳入统一的具身任务流程。
+
 <img width="1115" height="550" alt="Screenshot 2026-04-09 at 10 53 22" src="https://github.com/user-attachments/assets/d086bd10-d2e2-4019-a9bb-da9d2cd3457f" />
 
 # 1. 准备工作
@@ -52,7 +68,18 @@ swift utils/list_cams.swift
 
 记住UID。
 
-# 2. 演示示例
+# 2. 演示示例：展厅手机导购
+
+该 demo 展示了一段面向**线下导购场景**的手机演示流程。
+当顾客进入或唤醒系统后，
+* RobiAgent 会协调双机械臂与语音模块，先通过人脸追踪，由一只机械臂将手机送到**更适合顾客观看**的位置和角度，同时通过**语音介绍**产品卖点；
+* 在需要进一步展示功能时，另一只机械臂会**在手机屏幕上进行点击、滑动等操作**，完成更直观的功能演示。
+
+整个过程体现的是 RobiAgent 将顾客感知、语音讲解、机械臂运动控制与终端交互串联起来的能力。
+
+
+
+**试试看！**
 
 如果是第一次运行，需要先创建必要的配置文件`config.yml`和`.env`：
 
