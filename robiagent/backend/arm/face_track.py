@@ -459,8 +459,6 @@ class FaceTrack:
         self.target_pose = dict(self.arm.home)
         self.connected = True
 
-        self.session.begin_after_connect()
-
     def disconnect(self):
         try:
             self.tracker.close()
@@ -633,6 +631,8 @@ class FaceTrack:
 
     def run_forever(self, return_on_finish=True, args=None,
                     execute=True) -> dict[str, Any] | None:
+        self.session.begin_after_connect()
+
         def on_key(key: int) -> None:
             if key == ord("h"):
                 self.arm.go_home()

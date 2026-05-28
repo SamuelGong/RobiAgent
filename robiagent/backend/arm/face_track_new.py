@@ -1142,7 +1142,6 @@ class FaceTrackNew:
         self.model = AdvancedScreenTargetModel(
             self.body_config, self.task_config, self.internal_config
         )
-        self.session.begin_after_connect()
         self.connected = True
 
     def disconnect(self):
@@ -1988,6 +1987,8 @@ class FaceTrackNew:
     def run_forever(
         self, return_on_finish=True, args=None, execute=True
     ) -> dict[str, Any] | None:
+        self.session.begin_after_connect()
+
         def on_key(key: int) -> None:
             if key == ord("h"):
                 self.arm.go_home()
