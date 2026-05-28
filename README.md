@@ -1,7 +1,11 @@
 # RobiAgent
 
 <p align="center">
-    <a href="https://github.com/SamuelGong/Lotto/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SamuelGong/RobiAgent?color=yellow" alt="License"></a>
+    <a href="https://github.com/SamuelGong/RobiAgent/blob/main/LICENSE"><img src="https://img.shields.io/github/license/SamuelGong/RobiAgent?color=yellow" alt="License"></a>
+</p>
+
+<p align="center">
+    <strong>简体中文</strong> | <a href="./README-EN.md">English</a>
 </p>
 
 RobiAgent 是一个**具身智能体**，能够让本体在真实物理环境中完成复杂、长程、需要多模块协同的任务。
@@ -78,6 +82,8 @@ swift utils/list_cams.swift
 整个过程体现的是 RobiAgent 将顾客感知、语音讲解、机械臂运动控制与终端交互串联起来的能力。
 
 https://github.com/user-attachments/assets/0af5385e-33c3-4bad-bfd6-2829eebf7661
+
+> 视频有声音（语音播报），建议取消静音欣赏。
 
 **试试看！**
 
