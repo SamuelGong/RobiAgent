@@ -289,7 +289,7 @@ class RightSO101Controller:
     def touch_phone(self, phone_ik: np.ndarray, touch: bool = True):
         self.ee_act['ee.x'] = phone_ik[0] - 0.03
         self.ee_act['ee.y'] = phone_ik[1]
-        self.ee_act['ee.z'] = phone_ik[2]
+        self.ee_act['ee.z'] = phone_ik[2] - 0.03
         only_ik_interpolation = False
         if self.use_weighted_interpolation:
             robot_obs = self.robot.get_observation()
@@ -325,7 +325,7 @@ class RightSO101Controller:
 
         #往前启动一下，顶到手机
         self.ee_act['ee.x'] += 0.03
-        # self.ee_act['ee.z'] += 0.03
+        self.ee_act['ee.z'] += 0.03
         if self.use_weighted_interpolation:
             robot_obs = self.robot.get_observation()
             ee_obs = self.joints_to_ee(robot_obs)
