@@ -4,7 +4,8 @@ import numpy as np
 import time
 from lerobot.utils.robot_utils import precise_sleep
 import cv2
-
+import logging
+import traceback
 @dataclass
 class PhoneTouchInternalParams:
     cam_to_ik_rot: tuple[
@@ -92,7 +93,11 @@ class RightSO101Controller:
                 # disable_torque_on_disconnect=False,
             )
         )
-        self.robot.connect(calibrate=False)
+        try:
+            self.robot.connect(calibrate=False)
+        except Exception as e:
+            logging.info(f"{e}")
+            logging.info(f"{traceback.format_exc()}")
         self.action_keys = list(self.robot.action_features.keys())
         self.home = self.get_pose()
 
@@ -346,7 +351,7 @@ class RightSO101Controller:
                     self.move_arm(ee_act, 1)
         else:
             self.move_arm(self.ee_act, self.move_epoch)
-        time.sleep(0.5)
+        # time.sleep(0.5)
 
         motor = self.direction_action_dict[direction].motors
         move_direction = self.direction_action_dict[direction].move
